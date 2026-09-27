@@ -245,6 +245,87 @@ public final class SokobanSelfTest {
         check("按完序列后无尽模式立刻可以跳关",
                 unlocked && wired.canAdvance() && wired.changeLevel(1));
 
+        section("存档槽：写入 / 读取 / 删除");
+        File saveDir = new File(outDir, "test-saves");
+        purge(saveDir);
+        SaveManager manager = new SaveManager(saveDir);
+        check("初始没有任何存档", manager.latest() == null && manager.isEmpty());
+        check("空槽读出来是空的", !manager.read(0).exists());
+
+        SaveSlot written = SaveSlot.of(2, 5, 42, new int[] {1, 2, 3}, 17, 6, 9, 123456789L, 1000L);
+        check("写入成功", manager.write(2, written));
+        SaveSlot back = manager.read(2);
+        check("关卡下标读回一致", back.getLevelIndex() == 5);
+        check("玩家位置读回一致", back.getPlayer() == 42);
+        check("箱子位置读回一致", Arrays.equals(back.getBoxes(), new int[] {1, 2, 3}));
+        check("步数与推动数读回一致", back.getSteps() == 17 && back.getPushes() == 6);
+        check("解锁进度读回一致", back.getUnlocked() == 9);
+        check("随机种子读回一致", back.getSeedBase() == 123456789L);
+        check("保存时间读回一致", back.getSavedAt() == 1000L);
+        check("没写过的槽仍是空的", !manager.read(3).exists());
+        check("latest 能找到唯一的存档",
+                manager.latest() != null && manager.latest().getIndex() == 2);
+
+        manager.write(5, SaveSlot.of(5, 7, 1, new int[] {4}, 3, 1, 8, 1L, 2000L));
+        check("latest 返回最新的那个", manager.latest().getIndex() == 5);
+        check("删除成功", manager.delete(5) && !manager.read(5).exists());
+        check("重复删除返回 false", !manager.delete(5));
+        check("拿不到存档目录时写入失败", !new SaveManager(null).write(0, written));
+        check("拿不到存档目录时读取为空", !new SaveManager(null).read(0).exists());
+
+        section("存档/读档：从上次的局面继续");
+        SokobanGame original = new SokobanGame(Campaign.createSeeded(777L));
+        original.loadLevel(3);
+        original.move(SokobanGame.Dir.LEFT);   // 走到箱子下方
+        original.move(SokobanGame.Dir.UP);     // 往上推一格
+        original.move(SokobanGame.Dir.LEFT);
+        int savedPlayer = original.getPlayer();
+        int[] savedBoxes = original.getBoxes();
+        int savedSteps = original.getSteps();
+        int savedPushes = original.getPushes();
+        check("存档前确实走动了", savedSteps == 3 && savedPushes > 0);
+
+        SokobanGame loaded = new SokobanGame(Campaign.createSeeded(999L));
+        loaded.setMaxUnlockedLevel(20);
+        check("换一套种子后仍能恢复到这个局面",
+                loaded.restore(3, savedPlayer, savedBoxes, savedSteps, savedPushes));
+        check("关卡下标一致", loaded.getLevelIndex() == 3);
+        check("玩家位置一致", loaded.getPlayer() == savedPlayer);
+        check("箱子位置一致", Arrays.equals(loaded.getBoxes(), savedBoxes));
+        check("步数与推动数一致",
+                loaded.getSteps() == savedSteps && loaded.getPushes() == savedPushes);
+        check("恢复后未判定为通关", !loaded.isWon());
+
+        original.move(SokobanGame.Dir.RIGHT);
+        loaded.move(SokobanGame.Dir.RIGHT);
+        check("读档后继续操作，结果与原局面完全一致",
+                original.getPlayer() == loaded.getPlayer()
+                        && Arrays.equals(original.getBoxes(), loaded.getBoxes())
+                        && original.getSteps() == loaded.getSteps());
+
+        check("玩家落在墙上会被拒绝", !loaded.restore(3, 0, savedBoxes, 0, 0));
+        check("箱子数量对不上会被拒绝",
+                !loaded.restore(3, savedPlayer, new int[] {savedBoxes[0]}, 0, 0));
+        check("两个箱子叠在一起会被拒绝",
+                !loaded.restore(3, savedPlayer,
+                        new int[] {savedBoxes[0], savedBoxes[0]}, 0, 0));
+        check("恢复失败后局面没有被改坏",
+                loaded.getPlayer() == original.getPlayer()
+                        && Arrays.equals(loaded.getBoxes(), original.getBoxes()));
+
+        section("无尽地图可复现（否则读档会读到另一张地图）");
+        Campaign seedA = Campaign.createSeeded(4242L);
+        Campaign seedB = Campaign.createSeeded(4242L);
+        Campaign seedC = Campaign.createSeeded(9999L);
+        check("同一个种子生成同一张地图",
+                sameLevel(seedA.getLevel(12), seedB.getLevel(12)));
+        check("不同种子生成不同地图",
+                !sameLevel(seedA.getLevel(12), seedC.getLevel(12)));
+        Level beforeReseed = seedA.getLevel(15);
+        seedA.reseed(4242L);
+        check("切回同一个种子后地图又变回来了",
+                sameLevel(beforeReseed, seedA.getLevel(15)));
+
         section("存档：成绩与解锁进度");
         File saveFile = new File(outDir, "test-save.properties");
         saveFile.delete();
@@ -558,6 +639,40 @@ public final class SokobanSelfTest {
             }
         }
         return interior == 0 ? 0 : (double) walls / interior;
+    }
+
+    /** 两张地图是否完全相同（墙、目标点、箱子起点、玩家起点）。 */
+    private static boolean sameLevel(Level a, Level b) {
+        if (a.getWidth() != b.getWidth() || a.getHeight() != b.getHeight()) {
+            return false;
+        }
+        for (int y = 0; y < a.getHeight(); y++) {
+            for (int x = 0; x < a.getWidth(); x++) {
+                if (a.isWall(x, y) != b.isWall(x, y)) {
+                    return false;
+                }
+                int cell = y * a.getWidth() + x;
+                if (a.isGoal(cell) != b.isGoal(cell)) {
+                    return false;
+                }
+            }
+        }
+        return a.getPlayerStart() == b.getPlayerStart()
+                && Arrays.equals(a.getBoxStarts(), b.getBoxStarts());
+    }
+
+    /** 递归删掉一个目录（测试用）。 */
+    private static void purge(File file) {
+        if (file == null || !file.exists()) {
+            return;
+        }
+        File[] children = file.listFiles();
+        if (children != null) {
+            for (File child : children) {
+                purge(child);
+            }
+        }
+        file.delete();
     }
 
     /** 完整按一遍作弊码，返回最后一下是否触发。 */

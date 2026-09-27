@@ -17,22 +17,24 @@ public final class Campaign {
 
     private final List<Level> builtIn;
     private final EndlessGenerator generator;
-    private final Random random;
     private final Map<Integer, EndlessGenerator.Generated> endless =
             new HashMap<Integer, EndlessGenerator.Generated>();
+
+    /** 无尽关卡的随机种子基数：同一个基数必然生成同一套地图，读档就靠它复原。 */
+    private long seedBase;
 
     /**
      * @param builtInLevels 内置关卡，不能为空
      * @param generator     无尽关卡生成器，为 {@code null} 时使用默认实现
-     * @param random        随机源，为 {@code null} 时使用默认实现
+     * @param seedBase      无尽关卡的随机种子基数
      */
-    public Campaign(List<Level> builtInLevels, EndlessGenerator generator, Random random) {
+    public Campaign(List<Level> builtInLevels, EndlessGenerator generator, long seedBase) {
         if (builtInLevels == null || builtInLevels.isEmpty()) {
             throw new IllegalArgumentException("内置关卡不能为空");
         }
         this.builtIn = Collections.unmodifiableList(new ArrayList<Level>(builtInLevels));
         this.generator = generator == null ? new EndlessGenerator() : generator;
-        this.random = random == null ? new Random() : random;
+        this.seedBase = seedBase;
     }
 
     /**
@@ -42,16 +44,34 @@ public final class Campaign {
      * @return 战役
      */
     public static Campaign createSeeded(long seed) {
-        return new Campaign(Levels.createDefault(), new EndlessGenerator(), new Random(seed));
+        return new Campaign(Levels.createDefault(), new EndlessGenerator(), seed);
     }
 
     /**
-     * 创建默认战役。
+     * 创建默认战役（每次运行换一套无尽地图）。
      *
      * @return 战役
      */
     public static Campaign createDefault() {
-        return new Campaign(Levels.createDefault(), new EndlessGenerator(), new Random());
+        return new Campaign(Levels.createDefault(), new EndlessGenerator(),
+                new Random().nextLong());
+    }
+
+    /** @return 当前随机种子；存档时要带上它。 */
+    public long getSeedBase() {
+        return seedBase;
+    }
+
+    /**
+     * 换一套随机种子，并清空已生成的无尽关卡缓存。
+     *
+     * <p>“新的开始”和“读档”都靠它把无尽地图切到对应那一套。</p>
+     *
+     * @param seed 新的随机种子基数
+     */
+    public void reseed(long seed) {
+        this.seedBase = seed;
+        endless.clear();
     }
 
     /** @return 内置关卡数量；下标大于等于它的都是无尽关卡。 */
@@ -141,7 +161,9 @@ public final class Campaign {
         Integer key = Integer.valueOf(index);
         EndlessGenerator.Generated generated = endless.get(key);
         if (generated == null) {
-            generated = generator.generate(getEndlessNumber(index), random);
+            // 用“种子基数 + 关卡下标”派生随机源：同一个存档读多少次都是同一张地图
+            Random rnd = new Random(seedBase + index * 0x9E3779B97F4A7C15L);
+            generated = generator.generate(getEndlessNumber(index), rnd);
             endless.put(key, generated);
         }
         return generated;

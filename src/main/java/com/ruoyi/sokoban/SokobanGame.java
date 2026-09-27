@@ -113,7 +113,7 @@ public final class SokobanGame {
      * @param levels 关卡列表
      */
     public SokobanGame(List<Level> levels) {
-        this(new Campaign(levels, null, null));
+        this(new Campaign(levels, null, 0L));
     }
 
     /* ---------------- 关卡与解锁 ---------------- */
@@ -145,6 +145,54 @@ public final class SokobanGame {
     /** 重玩当前关卡。 */
     public void reset() {
         loadLevel(levelIndex);
+    }
+
+    /**
+     * 从存档恢复局面：直接摆好玩家和每个箱子的位置，而不是回到关卡开头。
+     *
+     * <p>所有位置都会先校验；只要有一处不合法就整体拒绝，不做任何改动。</p>
+     *
+     * @param index  关卡下标
+     * @param player 玩家位置（一维下标）
+     * @param boxes  箱子位置，顺序必须与 {@link Level#getBoxStarts()} 一致
+     * @param steps  已走步数
+     * @param pushes 已推箱次数
+     * @return 恢复成功返回 {@code true}
+     */
+    public boolean restore(int index, int player, int[] boxes, int steps, int pushes) {
+        if (index < 0 || boxes == null) {
+            return false;
+        }
+        Level target = campaign.getLevel(index);
+        if (boxes.length != target.getBoxCount()) {
+            return false;
+        }
+        int cells = target.getWidth() * target.getHeight();
+        if (player < 0 || player >= cells || target.isWallAt(player)) {
+            return false;
+        }
+        boolean[] occupied = new boolean[cells];
+        for (int box : boxes) {
+            if (box < 0 || box >= cells || target.isWallAt(box) || occupied[box]) {
+                return false;
+            }
+            occupied[box] = true;
+        }
+        if (occupied[player]) {
+            return false;
+        }
+
+        this.levelIndex = index;
+        this.level = target;
+        this.player = player;
+        this.boxes = boxes.clone();
+        this.steps = Math.max(0, steps);
+        this.pushes = Math.max(0, pushes);
+        this.won = isSolved();
+        this.facing = Dir.DOWN;
+        this.history.clear();
+        this.maxUnlockedLevel = Math.max(this.maxUnlockedLevel, index);
+        return true;
     }
 
     /**

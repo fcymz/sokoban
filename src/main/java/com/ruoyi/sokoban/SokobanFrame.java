@@ -13,6 +13,13 @@ import javax.swing.KeyStroke;
 import javax.swing.Timer;
 import javax.swing.WindowConstants;
 import java.awt.BorderLayout;
+import java.awt.CardLayout;
+import java.awt.Component;
+import java.awt.GridBagLayout;
+import java.text.SimpleDateFormat;
+import javax.swing.Box;
+import javax.swing.BoxLayout;
+import javax.swing.JScrollPane;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -44,6 +51,17 @@ public final class SokobanFrame extends JFrame {
     private static final Color TEXT_OK   = new Color(0x3D, 0xDC, 0x97);
     private static final Color LINE      = new Color(0x2A, 0x30, 0x50);
     private static final Color BTN_BG    = new Color(0x20, 0x26, 0x3F);
+    private static final Color TEXT_FAINT = new Color(0x5C, 0x64, 0x8C);
+    private static final Color BG_AUTO_SLOT = new Color(0x1E, 0x24, 0x3C);
+
+    private static final String BASE_TITLE = "推箱子 · Sokoban";
+
+    private static final String CARD_MENU = "menu";
+    private static final String CARD_GAME = "game";
+    private static final String CARD_SLOTS = "slots";
+
+    private static final SimpleDateFormat TIME_FORMAT =
+            new SimpleDateFormat("MM-dd HH:mm");
 
     /** 自动演示每一步之间的间隔上限（毫秒）。 */
     private static final int HINT_MAX_DELAY_MS = 130;
@@ -58,6 +76,7 @@ public final class SokobanFrame extends JFrame {
     private final SokobanGame game;
     private final GamePanel board;
     private final SaveData save;
+    private final SaveManager saves;
 
     private final JLabel levelLabel = chip();
     private final JLabel mapLabel = chip();
@@ -68,6 +87,18 @@ public final class SokobanFrame extends JFrame {
 
     private final JButton hintButton;
     private final JButton nextButton;
+
+    /** 卡片容器：主菜单 / 游戏 / 存读档。 */
+    private CardLayout cards;
+    private JPanel cardHolder;
+    private JButton[] menuButtons;
+    private JLabel continueHint;
+
+    private JLabel slotsTitle;
+    private JPanel slotsList;
+
+    /** 存读档界面当前是“存档模式”还是“读档模式”。 */
+    private boolean slotsForSaving;
 
     /** 内置关卡的最短解缓存（无尽关卡用生成时自带的解法）。 */
     private final Map<Integer, List<SokobanGame.Dir>> solvedCache =
@@ -85,19 +116,31 @@ public final class SokobanFrame extends JFrame {
 
     /** 使用默认战役创建一个游戏窗口。 */
     public SokobanFrame() {
-        this(Campaign.createDefault(), new SaveData());
+        this(Campaign.createDefault(), new SaveData(), new SaveManager());
     }
 
     /**
      * 使用指定战役与存档创建窗口。
      *
      * @param campaign 关卡来源
-     * @param saveData 存档
+     * @param saveData 成绩/进度存档
      */
     public SokobanFrame(Campaign campaign, SaveData saveData) {
+        this(campaign, saveData, new SaveManager());
+    }
+
+    /**
+     * 使用指定战役、成绩存档与存档管理器创建窗口。
+     *
+     * @param campaign  关卡来源
+     * @param saveData  成绩/进度存档
+     * @param saveSlots 存档槽管理器
+     */
+    public SokobanFrame(Campaign campaign, SaveData saveData, SaveManager saveSlots) {
         super("推箱子 · Sokoban");
         this.campaign = campaign;
         this.save = saveData;
+        this.saves = saveSlots;
         this.game = new SokobanGame(campaign);
         this.board = new GamePanel(game);
 
@@ -125,18 +168,378 @@ public final class SokobanFrame extends JFrame {
         });
 
         setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
-        setLayout(new BorderLayout());
         getContentPane().setBackground(BG);
-        add(buildHeader(), BorderLayout.NORTH);
-        add(board, BorderLayout.CENTER);
-        add(buildFooter(), BorderLayout.SOUTH);
+        getContentPane().setLayout(new BorderLayout());
+        getContentPane().add(buildCards(), BorderLayout.CENTER);
 
         bindKeys();
         updateHud();
+        updateMenuState();
+        showMenu();
 
-        setSize(920, 800);
-        setMinimumSize(new Dimension(620, 520));
+        setSize(960, 820);
+        setMinimumSize(new Dimension(660, 560));
         setLocationRelativeTo(null);
+    }
+
+    /* ---------------- 卡片：主菜单 / 游戏 / 存读档 ---------------- */
+
+    private JComponent buildCards() {
+        cards = new CardLayout();
+        cardHolder = new JPanel(cards);
+        cardHolder.setBackground(BG);
+        cardHolder.add(buildMenuCard(), CARD_MENU);
+        cardHolder.add(buildGameCard(), CARD_GAME);
+        cardHolder.add(buildSlotsCard(), CARD_SLOTS);
+        return cardHolder;
+    }
+
+    private JComponent buildMenuCard() {
+        JPanel outer = new JPanel(new GridBagLayout());
+        outer.setBackground(BG);
+
+        JPanel box = new JPanel();
+        box.setOpaque(false);
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+
+        JLabel title = new JLabel("推箱子", JLabel.CENTER);
+        title.setFont(GamePanel.uiFont(48, Font.BOLD));
+        title.setForeground(TEXT_MAIN);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel subtitle = new JLabel("SOKOBAN", JLabel.CENTER);
+        subtitle.setFont(GamePanel.uiFont(13, Font.PLAIN));
+        subtitle.setForeground(TEXT_DIM);
+        subtitle.setAlignmentX(Component.CENTER_ALIGNMENT);
+        subtitle.setBorder(BorderFactory.createEmptyBorder(0, 0, 34, 0));
+
+        box.add(title);
+        box.add(subtitle);
+
+        menuButtons = new JButton[4];
+        menuButtons[0] = menuButton("新的开始", "随机生成一套全新的无尽地图，从第 1 关开始", 0);
+        menuButtons[1] = menuButton("继续游戏", "从最近的一次存档接着玩", 1);
+        menuButtons[2] = menuButton("读档", "打开存档列表，选择要读取的进度", 2);
+        menuButtons[3] = menuButton("退出", "关闭游戏", 3);
+        for (JButton menuButton : menuButtons) {
+            box.add(menuButton);
+            box.add(Box.createVerticalStrut(12));
+        }
+
+        continueHint = new JLabel(" ", JLabel.CENTER);
+        continueHint.setFont(GamePanel.uiFont(12, Font.PLAIN));
+        continueHint.setForeground(TEXT_DIM);
+        continueHint.setAlignmentX(Component.CENTER_ALIGNMENT);
+        continueHint.setBorder(BorderFactory.createEmptyBorder(10, 0, 0, 0));
+        box.add(continueHint);
+
+        outer.add(box);
+        return outer;
+    }
+
+    private JButton menuButton(String text, String tooltip, final int action) {
+        JButton b = new JButton(text);
+        b.setFont(GamePanel.uiFont(17, Font.PLAIN));
+        b.setForeground(TEXT_MAIN);
+        b.setBackground(BTN_BG);
+        b.setFocusable(false);
+        b.setToolTipText(tooltip);
+        b.setAlignmentX(Component.CENTER_ALIGNMENT);
+        b.setMaximumSize(new Dimension(260, 46));
+        b.setPreferredSize(new Dimension(260, 46));
+        b.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(LINE, 1),
+                BorderFactory.createEmptyBorder(8, 18, 8, 18)));
+        b.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                handleMenuAction(action);
+            }
+        });
+        return b;
+    }
+
+    private JComponent buildGameCard() {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBackground(BG);
+        card.add(buildHeader(), BorderLayout.NORTH);
+        card.add(board, BorderLayout.CENTER);
+        card.add(buildFooter(), BorderLayout.SOUTH);
+        return card;
+    }
+
+    private JComponent buildSlotsCard() {
+        JPanel card = new JPanel(new BorderLayout());
+        card.setBackground(BG);
+        card.setBorder(BorderFactory.createEmptyBorder(16, 20, 16, 20));
+
+        slotsTitle = new JLabel("读档", JLabel.CENTER);
+        slotsTitle.setFont(GamePanel.uiFont(22, Font.BOLD));
+        slotsTitle.setForeground(TEXT_MAIN);
+        slotsTitle.setBorder(BorderFactory.createEmptyBorder(0, 0, 12, 0));
+
+        slotsList = new JPanel();
+        slotsList.setBackground(BG);
+        slotsList.setLayout(new BoxLayout(slotsList, BoxLayout.Y_AXIS));
+
+        JScrollPane scroll = new JScrollPane(slotsList);
+        scroll.setBorder(BorderFactory.createLineBorder(LINE, 1));
+        scroll.getViewport().setBackground(BG);
+        scroll.getVerticalScrollBar().setUnitIncrement(16);
+
+        JButton back = button("返回主菜单 (Esc)", new Runnable() {
+            @Override
+            public void run() {
+                cancelHint();
+                showMenu();
+            }
+        });
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        bottom.setOpaque(false);
+        bottom.add(back);
+
+        card.add(slotsTitle, BorderLayout.NORTH);
+        card.add(scroll, BorderLayout.CENTER);
+        card.add(bottom, BorderLayout.SOUTH);
+        return card;
+    }
+
+    /* ---------------- 主菜单行为 ---------------- */
+
+    private void handleMenuAction(int action) {
+        switch (action) {
+            case 0:
+                startNewGame();
+                break;
+            case 1:
+                continueLatest();
+                break;
+            case 2:
+                showSlots(false);
+                break;
+            default:
+                exitGame();
+                break;
+        }
+    }
+
+    /** 新的开始：换一套随机种子，从第 1 关重新开始。 */
+    private void startNewGame() {
+        campaign.reseed(new java.util.Random().nextLong());
+        game.setMaxUnlockedLevel(0);
+        game.loadLevel(0);
+        winRecorded = false;
+        solvedCache.clear();
+        updateHud();
+        showGame();
+        setStatus("新的开始：从第 1 关出发", TEXT_OK);
+    }
+
+    /** 继续游戏：读取最近的一次存档。 */
+    private void continueLatest() {
+        SaveSlot latest = saves.latest();
+        if (latest == null) {
+            setStatus("还没有任何存档", TEXT_WARN);
+            return;
+        }
+        if (loadSlot(latest.getIndex())) {
+            setStatus("已从存档 " + labels(latest.getIndex()) + " 继续", TEXT_OK);
+        }
+    }
+
+    /** 退出游戏。 */
+    private void exitGame() {
+        dispose();
+        System.exit(0);
+    }
+
+    private void showMenu() {
+        cancelHint();
+        updateMenuState();
+        setTitle(BASE_TITLE);
+        cards.show(cardHolder, CARD_MENU);
+    }
+
+    private void showGame() {
+        cards.show(cardHolder, CARD_GAME);
+    }
+
+    /**
+     * 打开存读档列表。
+     *
+     * @param forSaving {@code true} 表示“存档”模式，{@code false} 表示“读档”模式
+     */
+    private void showSlots(boolean forSaving) {
+        cancelHint();
+        this.slotsForSaving = forSaving;
+        slotsTitle.setText(forSaving ? "存档 · 选择一个槽位写入" : "读档 · 选择要读取的进度");
+        setTitle(BASE_TITLE);
+        refreshSlots();
+        cards.show(cardHolder, CARD_SLOTS);
+    }
+
+    private void refreshSlots() {
+        slotsList.removeAll();
+        for (int slot = 0; slot < SaveManager.SLOT_COUNT; slot++) {
+            slotsList.add(buildSlotRow(slot, saves.read(slot)));
+        }
+        slotsList.add(Box.createVerticalStrut(8));
+        slotsList.revalidate();
+        slotsList.repaint();
+    }
+
+    private JComponent buildSlotRow(final int slot, final SaveSlot data) {
+        JPanel row = new JPanel(new BorderLayout(12, 0));
+        row.setBackground(slot == SaveManager.AUTO_SLOT ? BG_AUTO_SLOT : BG);
+        row.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createMatteBorder(0, 0, 1, 0, LINE),
+                BorderFactory.createEmptyBorder(10, 14, 10, 14)));
+        row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 62));
+
+        JPanel text = new JPanel();
+        text.setOpaque(false);
+        text.setLayout(new BoxLayout(text, BoxLayout.Y_AXIS));
+
+        JLabel name = new JLabel(labels(slot));
+        name.setFont(GamePanel.uiFont(14, Font.BOLD));
+        name.setForeground(TEXT_MAIN);
+
+        JLabel detail = new JLabel(data.exists()
+                ? describe(data)
+                : "空存档");
+        detail.setFont(GamePanel.uiFont(12, Font.PLAIN));
+        detail.setForeground(data.exists() ? TEXT_DIM : TEXT_FAINT);
+
+        text.add(name);
+        text.add(detail);
+        row.add(text, BorderLayout.CENTER);
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
+        actions.setOpaque(false);
+        if (slotsForSaving) {
+            actions.add(button(data.exists() ? "覆盖保存" : "存入此档", new Runnable() {
+                @Override
+                public void run() {
+                    saveToSlot(slot);
+                }
+            }));
+        } else if (data.exists()) {
+            actions.add(button("读取", new Runnable() {
+                @Override
+                public void run() {
+                    if (loadSlot(slot)) {
+                        setStatus("已读取存档 " + labels(slot), TEXT_OK);
+                    }
+                }
+            }));
+        }
+        if (data.exists()) {
+            actions.add(button("删除", new Runnable() {
+                @Override
+                public void run() {
+                    saves.delete(slot);
+                    refreshSlots();
+                    updateMenuState();
+                }
+            }));
+        }
+        row.add(actions, BorderLayout.EAST);
+        return row;
+    }
+
+    private static String labels(int slot) {
+        return slot == SaveManager.AUTO_SLOT ? "自动存档" : "存档 " + slot;
+    }
+
+    /** 一行摘要：关卡进度 + 步数 + 保存时间。 */
+    private String describe(SaveSlot data) {
+        String progress = campaign.getTitle(data.getLevelIndex())
+                + "　·　" + data.getSteps() + " 步";
+        if (data.getSavedAt() <= 0L) {
+            return progress;
+        }
+        return progress + "　·　" + TIME_FORMAT.format(new java.util.Date(data.getSavedAt()));
+    }
+
+    /* ---------------- 存 / 读 ---------------- */
+
+    /** 把当前局面写进指定槽位。 */
+    private void saveToSlot(int slot) {
+        SaveSlot data = SaveSlot.of(slot,
+                game.getLevelIndex(), game.getPlayer(), game.getBoxes(),
+                game.getSteps(), game.getPushes(),
+                game.getMaxUnlockedLevel(), campaign.getSeedBase(),
+                System.currentTimeMillis());
+        if (saves.write(slot, data)) {
+            refreshSlots();
+            updateMenuState();
+            setStatus("已存入 " + labels(slot) + "：" + campaign.getTitle(data.getLevelIndex()),
+                    TEXT_OK);
+        } else {
+            setStatus("存档失败：写不进存档目录", TEXT_WARN);
+        }
+    }
+
+    /**
+     * 读取指定槽位。
+     *
+     * @return 读取成功返回 {@code true}
+     */
+    private boolean loadSlot(int slot) {
+        SaveSlot data = saves.read(slot);
+        if (!data.exists()) {
+            setStatus("这个槽位还没有存档", TEXT_WARN);
+            return false;
+        }
+        // 先切到存档当时的随机种子，无尽地图才会和存的那一刻完全一致
+        campaign.reseed(data.getSeedBase());
+        solvedCache.clear();
+        game.setMaxUnlockedLevel(data.getUnlocked());
+        if (!game.restore(data.getLevelIndex(), data.getPlayer(), data.getBoxes(),
+                data.getSteps(), data.getPushes())) {
+            setStatus("存档内容有问题，无法读取", TEXT_WARN);
+            return false;
+        }
+        winRecorded = game.isWon();
+        updateHud();
+        showGame();
+        return true;
+    }
+
+    /** 每通关一关自动存一次，存的是“下一关的开头”，方便直接继续。 */
+    private void autoSaveAfterWin() {
+        int next = game.getLevelIndex() + 1;
+        Level nextLevel = campaign.getLevel(next);
+        SaveSlot data = SaveSlot.of(SaveManager.AUTO_SLOT,
+                next, nextLevel.getPlayerStart(), nextLevel.getBoxStarts(),
+                0, 0, Math.max(game.getMaxUnlockedLevel(), next),
+                campaign.getSeedBase(), System.currentTimeMillis());
+        if (saves.write(SaveManager.AUTO_SLOT, data)) {
+            updateMenuState();
+            if (slotsForSaving || cards != null) {
+                refreshSlotsIfVisible();
+            }
+        }
+    }
+
+    private void refreshSlotsIfVisible() {
+        if (slotsList != null && slotsList.isShowing()) {
+            refreshSlots();
+        }
+    }
+
+    /** 刷新主菜单上“继续游戏”的提示。 */
+    private void updateMenuState() {
+        if (menuButtons == null) {
+            return;
+        }
+        SaveSlot latest = saves.latest();
+        boolean hasSave = latest != null;
+        menuButtons[1].setEnabled(hasSave);
+        menuButtons[1].setToolTipText(hasSave
+                ? "继续：" + describe(latest)
+                : "还没有任何存档");
+        continueHint.setText(hasSave ? "最近进度：" + describe(latest) : "还没有任何存档");
     }
 
     /* ---------------- 界面搭建 ---------------- */
@@ -199,7 +602,28 @@ public final class SokobanFrame extends JFrame {
             }
         }));
         buttons.add(nextButton);
-        buttons.add(button("清除记录", new Runnable() {
+
+        JPanel systemButtons = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 2));
+        systemButtons.setOpaque(false);
+        systemButtons.add(button("保存 (S)", new Runnable() {
+            @Override
+            public void run() {
+                showSlots(true);
+            }
+        }));
+        systemButtons.add(button("读档 (L)", new Runnable() {
+            @Override
+            public void run() {
+                showSlots(false);
+            }
+        }));
+        systemButtons.add(button("返回主菜单 (Esc)", new Runnable() {
+            @Override
+            public void run() {
+                showMenu();
+            }
+        }));
+        systemButtons.add(button("清除成绩", new Runnable() {
             @Override
             public void run() {
                 doClearScores();
@@ -211,13 +635,14 @@ public final class SokobanFrame extends JFrame {
 
         JLabel hint = new JLabel(
                 "方向键 / WASD 移动 · U 撤销 · R 重来 · H 提示 · N 下一关 · P 上一关"
-                        + "　（过关后才能进入下一关）", JLabel.CENTER);
+                        + " · S 存档 · L 读档", JLabel.CENTER);
         hint.setFont(GamePanel.uiFont(11, Font.PLAIN));
         hint.setForeground(TEXT_DIM);
 
         footer.add(buttons, BorderLayout.NORTH);
-        footer.add(statusLabel, BorderLayout.CENTER);
-        footer.add(hint, BorderLayout.SOUTH);
+        footer.add(systemButtons, BorderLayout.CENTER);
+        footer.add(statusLabel, BorderLayout.SOUTH);
+        footer.add(hint, BorderLayout.PAGE_END);
         return footer;
     }
 
@@ -289,6 +714,25 @@ public final class SokobanFrame extends JFrame {
                 doHint();
             }
         });
+        action(root, "save-slots", KeyStroke.getKeyStroke(KeyEvent.VK_S, 0), new Runnable() {
+            @Override
+            public void run() {
+                showSlots(true);
+            }
+        });
+        action(root, "load-slots", KeyStroke.getKeyStroke(KeyEvent.VK_L, 0), new Runnable() {
+            @Override
+            public void run() {
+                showSlots(false);
+            }
+        });
+        action(root, "back-to-menu", KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        showMenu();
+                    }
+                });
         action(root, "next-level", KeyStroke.getKeyStroke(KeyEvent.VK_N, 0), new Runnable() {
             @Override
             public void run() {
@@ -533,6 +977,8 @@ public final class SokobanFrame extends JFrame {
         if (game.isWon() && !winRecorded) {
             winRecorded = true;
             save.submit(game.getLevelIndex(), game.getSteps());
+            // 每通关一关自动存档（存的是下一关的开头）
+            autoSaveAfterWin();
         }
         // 通关时 SokobanGame 已经解锁了下一关，这里把它落盘
         save.unlockLevel(game.getMaxUnlockedLevel());
