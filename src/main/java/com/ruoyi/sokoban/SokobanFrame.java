@@ -96,9 +96,18 @@ public final class SokobanFrame extends JFrame {
 
     private JLabel slotsTitle;
     private JPanel slotsList;
+    private JButton slotsBackButton;
+    private JButton slotsMenuButton;
+    private JPanel slotsBottom;
 
     /** 存读档界面当前是“存档模式”还是“读档模式”。 */
     private boolean slotsForSaving;
+
+    /** 当前停在哪个界面（主菜单 / 游戏 / 存读档）。 */
+    private String currentCard = CARD_MENU;
+
+    /** 存读档界面是从哪个界面点进来的，返回时原路回去。 */
+    private String slotsReturnCard = CARD_MENU;
 
     /** 内置关卡的最短解缓存（无尽关卡用生成时自带的解法）。 */
     private final Map<Integer, List<SokobanGame.Dir>> solvedCache =
@@ -287,20 +296,26 @@ public final class SokobanFrame extends JFrame {
         scroll.getViewport().setBackground(BG);
         scroll.getVerticalScrollBar().setUnitIncrement(16);
 
-        JButton back = button("返回主菜单 (Esc)", new Runnable() {
+        slotsBackButton = button("返回", new Runnable() {
             @Override
             public void run() {
-                cancelHint();
+                backFromSlots();
+            }
+        });
+        slotsMenuButton = button("主菜单", new Runnable() {
+            @Override
+            public void run() {
                 showMenu();
             }
         });
-        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
-        bottom.setOpaque(false);
-        bottom.add(back);
+        slotsBottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
+        slotsBottom.setOpaque(false);
+        slotsBottom.add(slotsBackButton);
+        slotsBottom.add(slotsMenuButton);
 
         card.add(slotsTitle, BorderLayout.NORTH);
         card.add(scroll, BorderLayout.CENTER);
-        card.add(bottom, BorderLayout.SOUTH);
+        card.add(slotsBottom, BorderLayout.SOUTH);
         return card;
     }
 
@@ -357,25 +372,63 @@ public final class SokobanFrame extends JFrame {
         cancelHint();
         updateMenuState();
         setTitle(BASE_TITLE);
-        cards.show(cardHolder, CARD_MENU);
+        showCard(CARD_MENU);
     }
 
     private void showGame() {
-        cards.show(cardHolder, CARD_GAME);
+        showCard(CARD_GAME);
+    }
+
+    /** 切换卡片，并记住当前停在哪个界面（返回时要用）。 */
+    private void showCard(String name) {
+        currentCard = name;
+        cards.show(cardHolder, name);
     }
 
     /**
      * 打开存读档列表。
+     *
+     * <p>会记住是从“游戏”还是“主菜单”点进来的，返回时原路回去——
+     * 在关卡里存完档可以直接回到刚才那一局继续玩。</p>
      *
      * @param forSaving {@code true} 表示“存档”模式，{@code false} 表示“读档”模式
      */
     private void showSlots(boolean forSaving) {
         cancelHint();
         this.slotsForSaving = forSaving;
+        this.slotsReturnCard = currentCard;
+        boolean fromGame = CARD_GAME.equals(slotsReturnCard);
         slotsTitle.setText(forSaving ? "存档 · 选择一个槽位写入" : "读档 · 选择要读取的进度");
+        slotsBackButton.setText(fromGame ? "返回游戏 (Esc)" : "返回主菜单 (Esc)");
+        slotsMenuButton.setVisible(fromGame);
+        slotsBottom.revalidate();
         setTitle(BASE_TITLE);
         refreshSlots();
-        cards.show(cardHolder, CARD_SLOTS);
+        showCard(CARD_SLOTS);
+    }
+
+    /**
+     * 从存读档界面返回：从哪来的回哪去。
+     *
+     * <p>这一点很重要——如果只能回主菜单，那么在关卡中途进来存档之后，
+     * 就只剩“读档”一条路能回到游戏，而存档里的进度比当前落后。</p>
+     */
+    private void backFromSlots() {
+        cancelHint();
+        if (CARD_GAME.equals(slotsReturnCard)) {
+            showGame();
+        } else {
+            showMenu();
+        }
+    }
+
+    /** Esc 的行为随当前界面而变：存读档界面原路返回，游戏界面回主菜单。 */
+    private void handleEscape() {
+        if (CARD_SLOTS.equals(currentCard)) {
+            backFromSlots();
+        } else if (CARD_GAME.equals(currentCard)) {
+            showMenu();
+        }
     }
 
     private void refreshSlots() {
@@ -726,11 +779,11 @@ public final class SokobanFrame extends JFrame {
                 showSlots(false);
             }
         });
-        action(root, "back-to-menu", KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
+        action(root, "escape", KeyStroke.getKeyStroke(KeyEvent.VK_ESCAPE, 0),
                 new Runnable() {
                     @Override
                     public void run() {
-                        showMenu();
+                        handleEscape();
                     }
                 });
         action(root, "next-level", KeyStroke.getKeyStroke(KeyEvent.VK_N, 0), new Runnable() {
