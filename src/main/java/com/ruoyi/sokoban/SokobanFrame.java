@@ -6,6 +6,7 @@ import javax.swing.BorderFactory;
 import javax.swing.InputMap;
 import javax.swing.JButton;
 import javax.swing.JComponent;
+import javax.swing.JDialog;
 import javax.swing.JFrame;
 import javax.swing.JLabel;
 import javax.swing.JPanel;
@@ -16,10 +17,13 @@ import java.awt.BorderLayout;
 import java.awt.CardLayout;
 import java.awt.Component;
 import java.awt.GridBagLayout;
+import java.awt.Toolkit;
+import java.awt.datatransfer.StringSelection;
 import java.text.SimpleDateFormat;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
 import javax.swing.JScrollPane;
+import javax.swing.JTextField;
 import java.awt.Color;
 import java.awt.Dimension;
 import java.awt.FlowLayout;
@@ -57,6 +61,7 @@ public final class SokobanFrame extends JFrame {
     private static final String BASE_TITLE = "推箱子 · Sokoban";
 
     private static final String CARD_MENU = "menu";
+    private static final String CARD_ENDLESS = "endless";
     private static final String CARD_GAME = "game";
     private static final String CARD_SLOTS = "slots";
 
@@ -103,7 +108,11 @@ public final class SokobanFrame extends JFrame {
     /** 存读档界面当前是“存档模式”还是“读档模式”。 */
     private boolean slotsForSaving;
 
-    /** 当前停在哪个界面（主菜单 / 游戏 / 存读档）。 */
+    /** 无尽模式开局界面上的种子输入框与提示。 */
+    private JTextField seedField;
+    private JLabel endlessStatus;
+
+    /** 当前停在哪个界面（主菜单 / 无尽开局 / 游戏 / 存读档）。 */
     private String currentCard = CARD_MENU;
 
     /** 存读档界面是从哪个界面点进来的，返回时原路回去。 */
@@ -198,9 +207,102 @@ public final class SokobanFrame extends JFrame {
         cardHolder = new JPanel(cards);
         cardHolder.setBackground(BG);
         cardHolder.add(buildMenuCard(), CARD_MENU);
+        cardHolder.add(buildEndlessCard(), CARD_ENDLESS);
         cardHolder.add(buildGameCard(), CARD_GAME);
         cardHolder.add(buildSlotsCard(), CARD_SLOTS);
         return cardHolder;
+    }
+
+    /** “直接从无尽模式开始”界面：随机种子，或手动指定种子。 */
+    private JComponent buildEndlessCard() {
+        JPanel outer = new JPanel(new GridBagLayout());
+        outer.setBackground(BG);
+
+        JPanel box = new JPanel();
+        box.setOpaque(false);
+        box.setLayout(new BoxLayout(box, BoxLayout.Y_AXIS));
+
+        JLabel title = new JLabel("从无尽模式开始", JLabel.CENTER);
+        title.setFont(GamePanel.uiFont(32, Font.BOLD));
+        title.setForeground(TEXT_MAIN);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel desc = new JLabel("跳过内置关卡，直接进入无尽第 1 层", JLabel.CENTER);
+        desc.setFont(GamePanel.uiFont(13, Font.PLAIN));
+        desc.setForeground(TEXT_DIM);
+        desc.setAlignmentX(Component.CENTER_ALIGNMENT);
+        desc.setBorder(BorderFactory.createEmptyBorder(4, 0, 26, 0));
+
+        box.add(title);
+        box.add(desc);
+
+        box.add(actionButton("随机开始", "随机一个种子，直接开始无尽第 1 层", new Runnable() {
+            @Override
+            public void run() {
+                startEndlessRandom();
+            }
+        }));
+        box.add(Box.createVerticalStrut(22));
+
+        JLabel orLabel = new JLabel("—— 或指定种子 ——", JLabel.CENTER);
+        orLabel.setFont(GamePanel.uiFont(13, Font.PLAIN));
+        orLabel.setForeground(TEXT_DIM);
+        orLabel.setAlignmentX(Component.CENTER_ALIGNMENT);
+        orLabel.setBorder(BorderFactory.createEmptyBorder(0, 0, 10, 0));
+        box.add(orLabel);
+
+        seedField = new JTextField();
+        seedField.setFont(GamePanel.uiFont(20, Font.BOLD));
+        seedField.setHorizontalAlignment(JTextField.CENTER);
+        seedField.setForeground(TEXT_MAIN);
+        seedField.setBackground(BTN_BG);
+        seedField.setCaretColor(TEXT_MAIN);
+        seedField.setToolTipText(SeedCode.hint());
+        seedField.setMaximumSize(new Dimension(280, 42));
+        seedField.setPreferredSize(new Dimension(280, 42));
+        seedField.setAlignmentX(Component.CENTER_ALIGNMENT);
+        seedField.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(LINE, 1),
+                BorderFactory.createEmptyBorder(4, 10, 4, 10)));
+        seedField.addActionListener(new ActionListener() {
+            @Override
+            public void actionPerformed(ActionEvent e) {
+                startEndlessFromInput();
+            }
+        });
+        box.add(seedField);
+        box.add(Box.createVerticalStrut(10));
+
+        box.add(actionButton("用这个种子开始", SeedCode.hint(), new Runnable() {
+            @Override
+            public void run() {
+                startEndlessFromInput();
+            }
+        }));
+        box.add(Box.createVerticalStrut(10));
+
+        JLabel formatHint = new JLabel(SeedCode.hint(), JLabel.CENTER);
+        formatHint.setFont(GamePanel.uiFont(11, Font.PLAIN));
+        formatHint.setForeground(TEXT_FAINT);
+        formatHint.setAlignmentX(Component.CENTER_ALIGNMENT);
+        box.add(formatHint);
+
+        endlessStatus = new JLabel(" ", JLabel.CENTER);
+        endlessStatus.setFont(GamePanel.uiFont(12, Font.BOLD));
+        endlessStatus.setForeground(TEXT_WARN);
+        endlessStatus.setAlignmentX(Component.CENTER_ALIGNMENT);
+        endlessStatus.setBorder(BorderFactory.createEmptyBorder(6, 0, 6, 0));
+        box.add(endlessStatus);
+
+        box.add(actionButton("返回主菜单 (Esc)", "回到主菜单", new Runnable() {
+            @Override
+            public void run() {
+                showMenu();
+            }
+        }));
+
+        outer.add(box);
+        return outer;
     }
 
     private JComponent buildMenuCard() {
@@ -225,11 +327,12 @@ public final class SokobanFrame extends JFrame {
         box.add(title);
         box.add(subtitle);
 
-        menuButtons = new JButton[4];
+        menuButtons = new JButton[5];
         menuButtons[0] = menuButton("新的开始", "随机生成一套全新的无尽地图，从第 1 关开始", 0);
         menuButtons[1] = menuButton("继续游戏", "从最近的一次存档接着玩", 1);
-        menuButtons[2] = menuButton("读档", "打开存档列表，选择要读取的进度", 2);
-        menuButtons[3] = menuButton("退出", "关闭游戏", 3);
+        menuButtons[2] = menuButton("无尽模式", "直接开始无尽第 1 层：随机种子，或自己指定一个种子", 2);
+        menuButtons[3] = menuButton("读档", "打开存档列表，选择要读取的进度", 3);
+        menuButtons[4] = menuButton("退出", "关闭游戏", 4);
         for (JButton menuButton : menuButtons) {
             box.add(menuButton);
             box.add(Box.createVerticalStrut(12));
@@ -247,22 +350,34 @@ public final class SokobanFrame extends JFrame {
     }
 
     private JButton menuButton(String text, String tooltip, final int action) {
+        return actionButton(text, tooltip, new Runnable() {
+            @Override
+            public void run() {
+                handleMenuAction(action);
+            }
+        });
+    }
+
+    /** 大号按钮，主菜单与无尽模式界面共用。 */
+    private JButton actionButton(String text, String tooltip, final Runnable action) {
         JButton b = new JButton(text);
         b.setFont(GamePanel.uiFont(17, Font.PLAIN));
         b.setForeground(TEXT_MAIN);
         b.setBackground(BTN_BG);
         b.setFocusable(false);
-        b.setToolTipText(tooltip);
+        if (tooltip != null && !tooltip.isEmpty()) {
+            b.setToolTipText(tooltip);
+        }
         b.setAlignmentX(Component.CENTER_ALIGNMENT);
-        b.setMaximumSize(new Dimension(260, 46));
-        b.setPreferredSize(new Dimension(260, 46));
+        b.setMaximumSize(new Dimension(280, 46));
+        b.setPreferredSize(new Dimension(280, 46));
         b.setBorder(BorderFactory.createCompoundBorder(
                 BorderFactory.createLineBorder(LINE, 1),
                 BorderFactory.createEmptyBorder(8, 18, 8, 18)));
         b.addActionListener(new ActionListener() {
             @Override
             public void actionPerformed(ActionEvent e) {
-                handleMenuAction(action);
+                action.run();
             }
         });
         return b;
@@ -330,6 +445,9 @@ public final class SokobanFrame extends JFrame {
                 continueLatest();
                 break;
             case 2:
+                showEndlessCard();
+                break;
+            case 3:
                 showSlots(false);
                 break;
             default:
@@ -338,9 +456,134 @@ public final class SokobanFrame extends JFrame {
         }
     }
 
+    /* ---------------- 无尽模式开局 ---------------- */
+
+    private void showEndlessCard() {
+        cancelHint();
+        endlessStatus.setText(" ");
+        seedField.setText("");
+        setTitle(BASE_TITLE);
+        showCard(CARD_ENDLESS);
+        seedField.requestFocusInWindow();
+    }
+
+    /** 随机种子直接开一局无尽模式。 */
+    private void startEndlessRandom() {
+        startEndless(SeedCode.randomSeed());
+    }
+
+    /** 用输入框里的种子开一局无尽模式。 */
+    private void startEndlessFromInput() {
+        Long seed = SeedCode.parse(seedField.getText());
+        if (seed == null) {
+            endlessStatus.setText(SeedCode.hint());
+            return;
+        }
+        seedField.setText(SeedCode.format(seed.longValue()));
+        startEndless(seed.longValue());
+    }
+
+    /**
+     * 用指定种子从无尽第 1 层开始。
+     *
+     * @param seed 规整前的种子
+     */
+    private void startEndless(long seed) {
+        campaign.reseed(seed);
+        game.setMaxUnlockedLevel(0);
+        game.loadLevel(campaign.getBuiltInCount());
+        winRecorded = false;
+        solvedCache.clear();
+        updateHud();
+        showGame();
+        setStatus("无尽模式开始 · 种子 " + campaign.getSeedCode(), TEXT_OK);
+    }
+
+    /* ---------------- 查看 / 复制种子 ---------------- */
+
+    private void showSeedDialog() {
+        cancelHint();
+        final String code = campaign.getSeedCode();
+
+        final JDialog dialog = new JDialog(this, "无尽模式种子", true);
+        dialog.getContentPane().setBackground(BG);
+        dialog.setLayout(new BorderLayout());
+
+        JPanel panel = new JPanel();
+        panel.setBackground(BG);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(BorderFactory.createEmptyBorder(18, 26, 16, 26));
+
+        JLabel caption = new JLabel("当前无尽模式的种子", JLabel.CENTER);
+        caption.setFont(GamePanel.uiFont(13, Font.PLAIN));
+        caption.setForeground(TEXT_DIM);
+        caption.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        final JTextField field = new JTextField(code);
+        field.setEditable(false);
+        field.setFont(GamePanel.uiFont(24, Font.BOLD));
+        field.setHorizontalAlignment(JTextField.CENTER);
+        field.setForeground(TEXT_MAIN);
+        field.setBackground(BTN_BG);
+        field.setCaretColor(TEXT_MAIN);
+        field.setMaximumSize(new Dimension(280, 48));
+        field.setPreferredSize(new Dimension(280, 48));
+        field.setAlignmentX(Component.CENTER_ALIGNMENT);
+        field.setBorder(BorderFactory.createCompoundBorder(
+                BorderFactory.createLineBorder(LINE, 1),
+                BorderFactory.createEmptyBorder(6, 12, 6, 12)));
+        field.selectAll();
+
+        JLabel hint = new JLabel("相同的种子会生成完全相同的无尽关卡", JLabel.CENTER);
+        hint.setFont(GamePanel.uiFont(12, Font.PLAIN));
+        hint.setForeground(TEXT_DIM);
+        hint.setAlignmentX(Component.CENTER_ALIGNMENT);
+        hint.setBorder(BorderFactory.createEmptyBorder(10, 0, 14, 0));
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+        actions.setOpaque(false);
+        actions.add(button("复制种子", new Runnable() {
+            @Override
+            public void run() {
+                boolean copied = copyToClipboard(code);
+                setStatus(copied ? "种子已复制到剪贴板：" + code
+                                : "复制失败，请手动选中复制：" + code,
+                        copied ? TEXT_OK : TEXT_WARN);
+                dialog.dispose();
+            }
+        }));
+        actions.add(button("关闭", new Runnable() {
+            @Override
+            public void run() {
+                dialog.dispose();
+            }
+        }));
+
+        panel.add(caption);
+        panel.add(Box.createVerticalStrut(10));
+        panel.add(field);
+        panel.add(hint);
+        panel.add(actions);
+
+        dialog.add(panel, BorderLayout.CENTER);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+    }
+
+    private static boolean copyToClipboard(String text) {
+        try {
+            Toolkit.getDefaultToolkit().getSystemClipboard()
+                    .setContents(new StringSelection(text), null);
+            return true;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
     /** 新的开始：换一套随机种子，从第 1 关重新开始。 */
     private void startNewGame() {
-        campaign.reseed(new java.util.Random().nextLong());
+        campaign.reseed(SeedCode.randomSeed());
         game.setMaxUnlockedLevel(0);
         game.loadLevel(0);
         winRecorded = false;
@@ -426,7 +669,7 @@ public final class SokobanFrame extends JFrame {
     private void handleEscape() {
         if (CARD_SLOTS.equals(currentCard)) {
             backFromSlots();
-        } else if (CARD_GAME.equals(currentCard)) {
+        } else if (!CARD_MENU.equals(currentCard)) {
             showMenu();
         }
     }
@@ -668,6 +911,12 @@ public final class SokobanFrame extends JFrame {
             @Override
             public void run() {
                 showSlots(false);
+            }
+        }));
+        systemButtons.add(button("种子", new Runnable() {
+            @Override
+            public void run() {
+                showSeedDialog();
             }
         }));
         systemButtons.add(button("返回主菜单 (Esc)", new Runnable() {

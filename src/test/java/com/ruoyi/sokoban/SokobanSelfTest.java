@@ -326,6 +326,52 @@ public final class SokobanSelfTest {
         check("切回同一个种子后地图又变回来了",
                 sameLevel(beforeReseed, seedA.getLevel(15)));
 
+        section("种子格式：8 位、可读、可无损往返");
+        long sample = 0xABCDEF1234L;
+        String seedCode = SeedCode.format(sample);
+        check("长度固定是 9（8 位 + 1 个短横线）", seedCode.length() == 9, seedCode);
+        check("按 4 位一组用短横线分开", seedCode.charAt(4) == '-', seedCode);
+        check("只用了规定字符集",
+                seedCode.replace("-", "").matches("[0-9A-HJKMNP-TV-Z]{8}"), seedCode);
+
+        long normalized = SeedCode.normalize(sample);
+        check("同一个种子编码结果稳定",
+                SeedCode.format(sample).equals(SeedCode.format(normalized)));
+        check("编码后再解析能还原",
+                SeedCode.parse(seedCode) != null
+                        && SeedCode.parse(seedCode).longValue() == normalized,
+                seedCode + " -> " + SeedCode.parse(seedCode));
+        check("任意 long 编解码都无损",
+                SeedCode.parse(SeedCode.format(Long.MIN_VALUE)).longValue()
+                        == SeedCode.normalize(Long.MIN_VALUE));
+
+        check("输入时忽略短横线与空格",
+                SeedCode.parse("  " + seedCode + "  ") != null
+                        && SeedCode.parse(seedCode.replace("-", "")).longValue() == normalized);
+        check("大小写不敏感",
+                SeedCode.parse(seedCode.toLowerCase()) != null
+                        && SeedCode.parse(seedCode.toLowerCase()).longValue() == normalized);
+        check("把 I / L 当成 1、把 O 当成 0",
+                SeedCode.parse("IIII-IIII").longValue() == SeedCode.parse("1111-1111").longValue()
+                        && SeedCode.parse("OOOO-OOOO").longValue()
+                        == SeedCode.parse("0000-0000").longValue());
+        check("位数不够会被拒绝", !SeedCode.isValid("7K3M"));
+        check("位数太多会被拒绝", !SeedCode.isValid("7K3M9QPZ8"));
+        check("用了被剔除的字母 U 会被拒绝", !SeedCode.isValid("UUUU-UUUU"));
+        check("夹杂非法符号会被拒绝", !SeedCode.isValid("7K3M-9Q!Z"));
+        check("null 会被拒绝", !SeedCode.isValid(null));
+
+        section("种子：同一个种子必然生成同一套无尽关卡");
+        Campaign worldA = Campaign.createSeeded(SeedCode.parse(seedCode).longValue());
+        Campaign worldB = Campaign.createSeeded(SeedCode.parse(seedCode).longValue());
+        Campaign worldC = Campaign.createSeeded(SeedCode.randomSeed());
+        check("同一个种子：第 12 层一致", sameLevel(worldA.getLevel(12), worldB.getLevel(12)));
+        check("同一个种子：第 23 层也一致", sameLevel(worldA.getLevel(23), worldB.getLevel(23)));
+        check("不同种子：地图不同", !sameLevel(worldA.getLevel(12), worldC.getLevel(12)));
+        check("关卡里能读出规范格式的种子", worldA.getSeedCode().equals(seedCode));
+        check("随机种子也是合法的规范编码",
+                SeedCode.parse(SeedCode.format(SeedCode.randomSeed())) != null);
+
         section("存档：成绩与解锁进度");
         File saveFile = new File(outDir, "test-save.properties");
         saveFile.delete();

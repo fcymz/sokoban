@@ -34,7 +34,7 @@ public final class Campaign {
         }
         this.builtIn = Collections.unmodifiableList(new ArrayList<Level>(builtInLevels));
         this.generator = generator == null ? new EndlessGenerator() : generator;
-        this.seedBase = seedBase;
+        this.seedBase = SeedCode.normalize(seedBase);
     }
 
     /**
@@ -54,7 +54,7 @@ public final class Campaign {
      */
     public static Campaign createDefault() {
         return new Campaign(Levels.createDefault(), new EndlessGenerator(),
-                new Random().nextLong());
+                SeedCode.randomSeed());
     }
 
     /** @return 当前随机种子；存档时要带上它。 */
@@ -70,8 +70,13 @@ public final class Campaign {
      * @param seed 新的随机种子基数
      */
     public void reseed(long seed) {
-        this.seedBase = seed;
+        this.seedBase = SeedCode.normalize(seed);
         endless.clear();
+    }
+
+    /** @return 当前种子的规范写法（8 位、4 位一组），界面上直接展示这个。 */
+    public String getSeedCode() {
+        return SeedCode.format(seedBase);
     }
 
     /** @return 内置关卡数量；下标大于等于它的都是无尽关卡。 */
