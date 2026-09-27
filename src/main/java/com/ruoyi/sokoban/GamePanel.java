@@ -139,7 +139,7 @@ public final class GamePanel extends JPanel {
             if (game.isWon()) {
                 drawWinOverlay(g2, w, h);
             } else if (game.isDeadlocked()) {
-                drawBanner(g2, w, h, "箱子被卡死了：按 U 撤销，或按 R 重来", TEXT_WARN);
+                drawBanner(g2, w, h, "已经不可能通关了：按 U 撤销，或按 R 重来本关", TEXT_WARN);
             }
         } finally {
             g2.dispose();

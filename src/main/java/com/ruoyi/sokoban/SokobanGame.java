@@ -401,29 +401,183 @@ public final class SokobanGame {
     }
 
     /**
-     * 粗粒度死局判断：箱子被推进死角（非目标点，且水平和垂直方向同时被挡）。
+     * 判断当前局面是不是已经不可能通关了。
      *
-     * <p>只做最简单的一层判断，可能有漏报，但不会有误报。</p>
+     * <p>只做<b>可靠</b>的判定：报死局就一定真的通关无望，绝不误报，
+     * 因此可能漏掉一些更隐蔽的死局，但玩家不会被打扰到。</p>
      *
-     * @return 疑似死局返回 {@code true}
+     * <p>三条判据：</p>
+     * <ol>
+     *   <li><b>贴墙滑轨</b>：箱子上下（或左右）只要有一侧是墙，竖直（水平）方向就再也推不动了——
+     *       往墙那边推，箱子进不去；反方向推，玩家得站进墙里。于是它只能在本行（本列）里挪，
+     *       一旦目标点不在这条线上就永远到不了。</li>
+     *   <li><b>彻底卡死</b>：箱子上下左右同时被挡，一步也动不了。</li>
+     *   <li><b>全局僵持</b>：所有箱子都推不动了，局面不可能再发生变化。</li>
+     * </ol>
+     *
+     * @return 确认死局返回 {@code true}
      */
     public boolean isDeadlocked() {
+        if (isSolved()) {
+            return false;
+        }
+        int width = level.getWidth();
         for (int i = 0; i < boxes.length; i++) {
             int box = boxes[i];
             if (level.isBoxPlaced(i, box)) {
                 continue;
             }
-            int x = box % level.getWidth();
-            int y = box / level.getWidth();
+            int x = box % width;
+            int y = box / width;
             boolean up = level.isWall(x, y - 1);
             boolean down = level.isWall(x, y + 1);
             boolean left = level.isWall(x - 1, y);
             boolean right = level.isWall(x + 1, y);
+
+            // 封在一行（一列）里：只能在这条线上挪，目标点不在线上就没救了
+            if (confinedToRow(x, y) && !targetInRow(i, y)) {
+                return true;
+            }
+            if (confinedToColumn(x, y) && !targetInColumn(i, x)) {
+                return true;
+            }
+            // 四方向全被挡：一步也动不了
             if ((up || down) && (left || right)) {
                 return true;
             }
         }
+        // 全局僵持：一个箱子都推不动了
+        return !anyPushPossible();
+    }
+
+    /**
+     * 箱子是否被“封”在这一行里。
+     *
+     * <p>箱子要竖直移动，必须在某个格子上做到“上方和下方都是空地”（往上推要站在下面，
+     * 往下推要站在上面）。所以只要它所在的那段连续空地里，每一格都至少有一侧贴着墙，
+     * 它就永远推不动上下，只能在这一行里左右挪。</p>
+     *
+     * <p>注意不能只看箱子当前这一格——它可能横着挪到同一行没有墙的位置再上下推。</p>
+     */
+    private boolean confinedToRow(int x, int y) {
+        int left = x;
+        while (!level.isWall(left - 1, y)) {
+            left--;
+        }
+        int right = x;
+        while (!level.isWall(right + 1, y)) {
+            right++;
+        }
+        for (int cx = left; cx <= right; cx++) {
+            if (!level.isWall(cx, y - 1) && !level.isWall(cx, y + 1)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 箱子是否被“封”在这一列里（判据与 {@link #confinedToRow} 对称）。 */
+    private boolean confinedToColumn(int x, int y) {
+        int up = y;
+        while (!level.isWall(x, up - 1)) {
+            up--;
+        }
+        int down = y;
+        while (!level.isWall(x, down + 1)) {
+            down++;
+        }
+        for (int cy = up; cy <= down; cy++) {
+            if (!level.isWall(x - 1, cy) && !level.isWall(x + 1, cy)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /** 第 i 个箱子的目标点是否在指定行上（未配对时只要该行有任意目标点即可）。 */
+    private boolean targetInRow(int boxIndex, int row) {
+        int width = level.getWidth();
+        if (level.isPaired()) {
+            return level.getBoxTarget(boxIndex) / width == row;
+        }
+        for (int x = 0; x < width; x++) {
+            if (level.isGoal(row * width + x)) {
+                return true;
+            }
+        }
         return false;
+    }
+
+    /** 第 i 个箱子的目标点是否在指定列上（未配对时只要该列有任意目标点即可）。 */
+    private boolean targetInColumn(int boxIndex, int column) {
+        int width = level.getWidth();
+        int height = level.getHeight();
+        if (level.isPaired()) {
+            return level.getBoxTarget(boxIndex) % width == column;
+        }
+        for (int y = 0; y < height; y++) {
+            if (level.isGoal(y * width + column)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 是否还存在至少一个合法推箱动作。 */
+    private boolean anyPushPossible() {
+        int width = level.getWidth();
+        boolean[] reachable = reachableCells(player);
+        for (int box : boxes) {
+            int x = box % width;
+            int y = box / width;
+            for (Dir dir : Dir.values()) {
+                int standX = x - dir.dx;
+                int standY = y - dir.dy;
+                int toX = x + dir.dx;
+                int toY = y + dir.dy;
+                if (level.isWall(standX, standY) || level.isWall(toX, toY)) {
+                    continue;
+                }
+                int stand = standY * width + standX;
+                if (stand < 0 || stand >= reachable.length || !reachable[stand]) {
+                    continue;
+                }
+                if (indexOfBox(toY * width + toX) >= 0) {
+                    continue;
+                }
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /** 玩家在不推箱子的前提下能走到的格子。 */
+    private boolean[] reachableCells(int from) {
+        int width = level.getWidth();
+        int height = level.getHeight();
+        boolean[] seen = new boolean[width * height];
+        Deque<Integer> queue = new ArrayDeque<Integer>();
+        seen[from] = true;
+        queue.add(Integer.valueOf(from));
+        while (!queue.isEmpty()) {
+            int current = queue.poll().intValue();
+            int cx = current % width;
+            int cy = current / width;
+            for (Dir dir : Dir.values()) {
+                int nx = cx + dir.dx;
+                int ny = cy + dir.dy;
+                if (level.isWall(nx, ny)) {
+                    continue;
+                }
+                int next = ny * width + nx;
+                if (seen[next] || indexOfBox(next) >= 0) {
+                    continue;
+                }
+                seen[next] = true;
+                queue.add(Integer.valueOf(next));
+            }
+        }
+        return seen;
     }
 
     /* ---------------- 状态访问 ---------------- */

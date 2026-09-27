@@ -135,11 +135,93 @@ public final class SokobanSelfTest {
         check("通关后移动被忽略", !game.move(SokobanGame.Dir.UP));
         check("通关后步数不再变化", game.getSteps() == 5, "steps=" + game.getSteps());
 
-        section("游戏规则：死局判定");
-        SokobanGame dead = new SokobanGame(Arrays.asList(new Level("死局",
+        section("死局判断：能确认的死局");
+        SokobanGame corner = new SokobanGame(Arrays.asList(new Level("死角",
                 "#####", "#$  #", "# @ #", "#  .#", "#####")));
-        check("箱子被推进死角时报告死局", dead.isDeadlocked());
-        check("第 1 关开局不是死局", !new SokobanGame(levels).isDeadlocked());
+        check("箱子被推进死角 -> 死局", corner.isDeadlocked());
+
+        SokobanGame railRow = new SokobanGame(Arrays.asList(new Level("贴墙横排",
+                "#######",
+                "#  .  #",
+                "#     #",
+                "#@$   #",
+                "#######")));
+        check("箱子贴着下墙、目标点不在同一行 -> 死局", railRow.isDeadlocked());
+
+        SokobanGame railColumn = new SokobanGame(Arrays.asList(new Level("贴墙竖列",
+                "######",
+                "#    #",
+                "# .  #",
+                "#    #",
+                "#@   #",
+                "#$   #",
+                "######")));
+        check("箱子贴着右墙、目标点不在同一列 -> 死局", railColumn.isDeadlocked());
+
+        SokobanGame stuck = new SokobanGame(Arrays.asList(new Level("四个箱子互相顶死",
+                "#########",
+                "#....   #",
+                "#  $$   #",
+                "#  $$   #",
+                "#   @   #",
+                "#########")));
+        check("所有箱子都推不动 -> 死局", stuck.isDeadlocked());
+
+        SokobanGame notStuck = new SokobanGame(Arrays.asList(new Level("少一个箱子就推得动",
+                "#########",
+                "#...     #",
+                "#  $$    #",
+                "#  $     #",
+                "#   @    #",
+                "#########")));
+        check("同样布局但有一个箱子推得动 -> 不是死局", !notStuck.isDeadlocked());
+
+        section("死局判断：绝不误报");
+        SokobanGame sameRow = new SokobanGame(Arrays.asList(new Level("同排可解",
+                "#######",
+                "#     #",
+                "#     #",
+                "#@$ . #",
+                "#######")));
+        check("箱子贴墙但目标点就在同一行 -> 不是死局", !sameRow.isDeadlocked());
+
+        boolean anyFalsePositive = false;
+        for (Level level : levels) {
+            anyFalsePositive |= new SokobanGame(Arrays.asList(level)).isDeadlocked();
+        }
+        check("10 个内置关卡的开局都不会被判成死局", !anyFalsePositive);
+
+        Random endlessDeadlock = new Random(606060L);
+        EndlessGenerator deadlockGenerator = new EndlessGenerator();
+        boolean endlessFalsePositive = false;
+        for (int number = 1; number <= 12; number++) {
+            Level lv = deadlockGenerator.generate(number, endlessDeadlock).getLevel();
+            endlessFalsePositive |= new SokobanGame(Arrays.asList(lv)).isDeadlocked();
+        }
+        check("无尽关卡的开局也不会被判成死局（开局必定有解）", !endlessFalsePositive);
+
+        section("死局判断：走死了能立刻发现，撤销后又能恢复");
+        SokobanGame walkInto = new SokobanGame(Arrays.asList(new Level("推到底",
+                "#######",
+                "#     #",
+                "# $ . #",
+                "#  @  #",
+                "#     #",
+                "#######")));
+        check("开局不是死局", !walkInto.isDeadlocked());
+        walkInto.move(SokobanGame.Dir.UP);
+        walkInto.move(SokobanGame.Dir.UP);
+        walkInto.move(SokobanGame.Dir.LEFT);
+        walkInto.move(SokobanGame.Dir.DOWN);
+        walkInto.move(SokobanGame.Dir.DOWN);
+        check("把箱子推到最底下一排后判定为死局", walkInto.isDeadlocked());
+        check("此时还没通关", !walkInto.isWon());
+        walkInto.undo();
+        check("撤销一步后不再是死局", !walkInto.isDeadlocked());
+
+        SokobanGame solvedGame = new SokobanGame(levels);
+        solveFirstLevel(solvedGame);
+        check("已经通关的局面不算死局", solvedGame.isWon() && !solvedGame.isDeadlocked());
 
         section("关卡解锁：前 10 关自由进入，限制只在无尽生效");
         SokobanGame nav = new SokobanGame(levels);

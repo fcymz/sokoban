@@ -125,6 +125,9 @@ public final class SokobanFrame extends JFrame {
     /** 防止同一关反复写入成绩。 */
     private boolean winRecorded;
 
+    /** 同一个死局只提醒一次；局面恢复有救后自动清掉。 */
+    private boolean deadlockNotified;
+
     private Timer hintTimer;
     private List<SokobanGame.Dir> hintPlan;
     private int hintCursor;
@@ -493,6 +496,7 @@ public final class SokobanFrame extends JFrame {
         game.setMaxUnlockedLevel(0);
         game.loadLevel(campaign.getBuiltInCount());
         winRecorded = false;
+        deadlockNotified = false;
         solvedCache.clear();
         updateHud();
         showGame();
@@ -587,6 +591,7 @@ public final class SokobanFrame extends JFrame {
         game.setMaxUnlockedLevel(0);
         game.loadLevel(0);
         winRecorded = false;
+        deadlockNotified = false;
         solvedCache.clear();
         updateHud();
         showGame();
@@ -797,6 +802,7 @@ public final class SokobanFrame extends JFrame {
             return false;
         }
         winRecorded = game.isWon();
+        deadlockNotified = false;
         updateHud();
         showGame();
         return true;
@@ -1285,6 +1291,96 @@ public final class SokobanFrame extends JFrame {
         // 通关时 SokobanGame 已经解锁了下一关，这里把它落盘
         save.unlockLevel(game.getMaxUnlockedLevel());
         board.refresh();
+        checkDeadlock();
+    }
+
+    /* ---------------- 死局检测 ---------------- */
+
+    /**
+     * 每次操作后检查是不是走进了死局。
+     *
+     * <p>同一个死局只提醒一次；局面恢复成有救之后标志会清掉，下次再走进死局还会提醒。</p>
+     */
+    private void checkDeadlock() {
+        if (game.isWon()) {
+            deadlockNotified = false;
+            return;
+        }
+        // 提示演示播放中不打扰玩家
+        if (hintTimer != null && hintTimer.isRunning()) {
+            return;
+        }
+        if (!game.isDeadlocked()) {
+            deadlockNotified = false;
+            return;
+        }
+        if (deadlockNotified) {
+            return;
+        }
+        deadlockNotified = true;
+        setStatus("检测到死局：这一关已经走不通了，按 R 重来本关", TEXT_WARN);
+        showDeadlockDialog();
+    }
+
+    private void showDeadlockDialog() {
+        final JDialog dialog = new JDialog(this, "这一关已经走不通了", true);
+        dialog.getContentPane().setBackground(BG);
+        dialog.setLayout(new BorderLayout());
+
+        JPanel panel = new JPanel();
+        panel.setBackground(BG);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 30, 18, 30));
+
+        JLabel title = new JLabel("检测到死局", JLabel.CENTER);
+        title.setFont(GamePanel.uiFont(20, Font.BOLD));
+        title.setForeground(TEXT_WARN);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel line1 = new JLabel("当前局面已经不可能再通关了。", JLabel.CENTER);
+        line1.setFont(GamePanel.uiFont(13, Font.PLAIN));
+        line1.setForeground(TEXT_MAIN);
+        line1.setAlignmentX(Component.CENTER_ALIGNMENT);
+        line1.setBorder(BorderFactory.createEmptyBorder(10, 0, 2, 0));
+
+        JLabel line2 = new JLabel("可以撤回几步试试，或者重来这一关。", JLabel.CENTER);
+        line2.setFont(GamePanel.uiFont(12, Font.PLAIN));
+        line2.setForeground(TEXT_DIM);
+        line2.setAlignmentX(Component.CENTER_ALIGNMENT);
+        line2.setBorder(BorderFactory.createEmptyBorder(0, 0, 16, 0));
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+        actions.setOpaque(false);
+        actions.add(button("重来本关 (R)", new Runnable() {
+            @Override
+            public void run() {
+                dialog.dispose();
+                doReset();
+            }
+        }));
+        actions.add(button("撤销一步 (U)", new Runnable() {
+            @Override
+            public void run() {
+                dialog.dispose();
+                doUndo();
+            }
+        }));
+        actions.add(button("继续看看", new Runnable() {
+            @Override
+            public void run() {
+                dialog.dispose();
+            }
+        }));
+
+        panel.add(title);
+        panel.add(line1);
+        panel.add(line2);
+        panel.add(actions);
+
+        dialog.add(panel, BorderLayout.CENTER);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
     }
 
     private void updateHud() {
