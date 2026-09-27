@@ -76,6 +76,35 @@ public final class SokobanSelfTest {
                     solution != null && replayed);
         }
 
+        section("求解器：解法要尽量短");
+        for (int i = 0; i < levels.size(); i++) {
+            Level lv = levels.get(i);
+            int optimal = minMoves(lv, 600000);
+            List<SokobanGame.Dir> solution = Solver.solve(lv, 600000);
+            check(String.format("第 %2d 关 [%s] 解法 %d 步，不差于最优解（%d 步）",
+                            i + 1, lv.getName(), solution == null ? -1 : solution.size(), optimal),
+                    solution != null && solution.size() <= optimal,
+                    "解法 " + (solution == null ? "-" : "" + solution.size()) + " vs 最优 " + optimal);
+        }
+
+        Random hintRandom = new Random(123450L);
+        EndlessGenerator hintGenerator = new EndlessGenerator();
+        int worstRatio = 0;
+        boolean allSolved = true;
+        for (int number = 1; number <= 12; number++) {
+            EndlessGenerator.Generated g = hintGenerator.generate(number, hintRandom);
+            List<SokobanGame.Dir> known = g.getSolution();
+            List<SokobanGame.Dir> solved = Solver.solve(g.getLevel(), 600000);
+            if (solved == null) {
+                allSolved = false;
+                continue;
+            }
+            worstRatio = Math.max(worstRatio, solved.size() * 100 / Math.max(1, known.size()));
+        }
+        check("无尽关卡全部都能算出解法（不再退化成生成器的长解法）", allSolved);
+        check("提示解法都不到生成器长解法的一半（最差 " + worstRatio + "%）",
+                worstRatio < 50, "最差 " + worstRatio + "%");
+
         section("提示：从当前局面接续解法");
         Level first = levels.get(0);
         List<SokobanGame.Dir> firstSolution = Solver.solve(first);
