@@ -31,6 +31,8 @@ import java.awt.Font;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.InputEvent;
+import java.awt.event.WindowAdapter;
+import java.awt.event.WindowEvent;
 import java.awt.event.KeyEvent;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -128,6 +130,9 @@ public final class SokobanFrame extends JFrame {
     /** 同一个死局只提醒一次；局面恢复有救后自动清掉。 */
     private boolean deadlockNotified;
 
+    /** 当前这一关有没有还没写进存档的操作。 */
+    private boolean unsavedChanges;
+
     private Timer hintTimer;
     private List<SokobanGame.Dir> hintPlan;
     private int hintCursor;
@@ -188,7 +193,14 @@ public final class SokobanFrame extends JFrame {
             }
         });
 
-        setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(WindowConstants.DO_NOTHING_ON_CLOSE);
+        addWindowListener(new WindowAdapter() {
+            @Override
+            public void windowClosing(WindowEvent e) {
+                // 点右上角的 × 也要先确认未存档的进度
+                requestExit();
+            }
+        });
         getContentPane().setBackground(BG);
         getContentPane().setLayout(new BorderLayout());
         getContentPane().add(buildCards(), BorderLayout.CENTER);
@@ -423,7 +435,7 @@ public final class SokobanFrame extends JFrame {
         slotsMenuButton = button("主菜单", new Runnable() {
             @Override
             public void run() {
-                showMenu();
+                requestMenu();
             }
         });
         slotsBottom = new JPanel(new FlowLayout(FlowLayout.CENTER, 8, 8));
@@ -454,7 +466,7 @@ public final class SokobanFrame extends JFrame {
                 showSlots(false);
                 break;
             default:
-                exitGame();
+                requestExit();
                 break;
         }
     }
@@ -497,6 +509,7 @@ public final class SokobanFrame extends JFrame {
         game.loadLevel(campaign.getBuiltInCount());
         winRecorded = false;
         deadlockNotified = false;
+        unsavedChanges = false;
         solvedCache.clear();
         updateHud();
         showGame();
@@ -592,6 +605,7 @@ public final class SokobanFrame extends JFrame {
         game.loadLevel(0);
         winRecorded = false;
         deadlockNotified = false;
+        unsavedChanges = false;
         solvedCache.clear();
         updateHud();
         showGame();
@@ -608,12 +622,6 @@ public final class SokobanFrame extends JFrame {
         if (loadSlot(latest.getIndex())) {
             setStatus("已从存档 " + labels(latest.getIndex()) + " 继续", TEXT_OK);
         }
-    }
-
-    /** 退出游戏。 */
-    private void exitGame() {
-        dispose();
-        System.exit(0);
     }
 
     private void showMenu() {
@@ -675,7 +683,7 @@ public final class SokobanFrame extends JFrame {
         if (CARD_SLOTS.equals(currentCard)) {
             backFromSlots();
         } else if (!CARD_MENU.equals(currentCard)) {
-            showMenu();
+            requestMenu();
         }
     }
 
@@ -772,6 +780,7 @@ public final class SokobanFrame extends JFrame {
                 game.getMaxUnlockedLevel(), campaign.getSeedBase(),
                 System.currentTimeMillis());
         if (saves.write(slot, data)) {
+            unsavedChanges = false;
             refreshSlots();
             updateMenuState();
             setStatus("已存入 " + labels(slot) + "：" + campaign.getTitle(data.getLevelIndex()),
@@ -803,6 +812,7 @@ public final class SokobanFrame extends JFrame {
         }
         winRecorded = game.isWon();
         deadlockNotified = false;
+        unsavedChanges = false;
         updateHud();
         showGame();
         return true;
@@ -817,6 +827,7 @@ public final class SokobanFrame extends JFrame {
                 0, 0, Math.max(game.getMaxUnlockedLevel(), next),
                 campaign.getSeedBase(), System.currentTimeMillis());
         if (saves.write(SaveManager.AUTO_SLOT, data)) {
+            unsavedChanges = false;
             updateMenuState();
             if (slotsForSaving || cards != null) {
                 refreshSlotsIfVisible();
@@ -928,7 +939,7 @@ public final class SokobanFrame extends JFrame {
         systemButtons.add(button("返回主菜单 (Esc)", new Runnable() {
             @Override
             public void run() {
-                showMenu();
+                requestMenu();
             }
         }));
         systemButtons.add(button("清除成绩", new Runnable() {
@@ -1130,6 +1141,7 @@ public final class SokobanFrame extends JFrame {
         game.reset();
         winRecorded = false;
         afterAction();
+        unsavedChanges = false;
         setStatus("已重来本关", TEXT_DIM);
     }
 
@@ -1142,6 +1154,7 @@ public final class SokobanFrame extends JFrame {
         if (game.changeLevel(delta)) {
             winRecorded = false;
             afterAction();
+            unsavedChanges = false;
             setStatus("", TEXT_DIM);
         } else {
             setStatus(delta < 0 ? "已经是第一关了" : "没有更多关卡了", TEXT_DIM);
@@ -1282,6 +1295,8 @@ public final class SokobanFrame extends JFrame {
     /* ---------------- 状态同步 ---------------- */
 
     private void afterAction() {
+        // 只要局面动过就先记成“有未存档的进度”，存过档的地方会把它清掉
+        unsavedChanges = true;
         if (game.isWon() && !winRecorded) {
             winRecorded = true;
             save.submit(game.getLevelIndex(), game.getSteps());
@@ -1292,6 +1307,104 @@ public final class SokobanFrame extends JFrame {
         save.unlockLevel(game.getMaxUnlockedLevel());
         board.refresh();
         checkDeadlock();
+    }
+
+    /* ---------------- 离开前确认未存档的进度 ---------------- */
+
+    /** 现在是否正处在一局游戏里（游戏界面，或从游戏打开的存读档界面）。 */
+    private boolean inActiveGame() {
+        if (CARD_GAME.equals(currentCard)) {
+            return true;
+        }
+        return CARD_SLOTS.equals(currentCard) && CARD_GAME.equals(slotsReturnCard);
+    }
+
+    /** 「返回主菜单」：有未存档的进度就先问一句。 */
+    private void requestMenu() {
+        if (inActiveGame() && !confirmLeaving("返回主菜单")) {
+            return;
+        }
+        showMenu();
+    }
+
+    /** 「退出」：有未存档的进度就先问一句。 */
+    private void requestExit() {
+        if (inActiveGame() && !confirmLeaving("退出")) {
+            return;
+        }
+        dispose();
+        System.exit(0);
+    }
+
+    /**
+     * 确认是否可以离开。
+     *
+     * @param action 动作名（“退出”或“返回主菜单”）
+     * @return 没有未存档的进度、或玩家确认了，返回 {@code true}
+     */
+    private boolean confirmLeaving(String action) {
+        if (!unsavedChanges) {
+            return true;
+        }
+        return showUnsavedDialog(action);
+    }
+
+    /**
+     * 未存档提示框。
+     *
+     * @param action 动作名
+     * @return 玩家点了“确定”返回 {@code true}
+     */
+    private boolean showUnsavedDialog(String action) {
+        cancelHint();
+        final boolean[] confirmed = new boolean[] {false};
+
+        final JDialog dialog = new JDialog(this, "还没有存档", true);
+        dialog.getContentPane().setBackground(BG);
+        dialog.setLayout(new BorderLayout());
+
+        JPanel panel = new JPanel();
+        panel.setBackground(BG);
+        panel.setLayout(new BoxLayout(panel, BoxLayout.Y_AXIS));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 30, 18, 30));
+
+        JLabel title = new JLabel("还没有存档，确定" + action + "吗？", JLabel.CENTER);
+        title.setFont(GamePanel.uiFont(17, Font.BOLD));
+        title.setForeground(TEXT_WARN);
+        title.setAlignmentX(Component.CENTER_ALIGNMENT);
+
+        JLabel detail = new JLabel("这一关的操作还没保存，离开后将从上次存档处继续。",
+                JLabel.CENTER);
+        detail.setFont(GamePanel.uiFont(12, Font.PLAIN));
+        detail.setForeground(TEXT_DIM);
+        detail.setAlignmentX(Component.CENTER_ALIGNMENT);
+        detail.setBorder(BorderFactory.createEmptyBorder(10, 0, 16, 0));
+
+        JPanel actions = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 0));
+        actions.setOpaque(false);
+        actions.add(button("确定" + action, new Runnable() {
+            @Override
+            public void run() {
+                confirmed[0] = true;
+                dialog.dispose();
+            }
+        }));
+        actions.add(button("取消", new Runnable() {
+            @Override
+            public void run() {
+                dialog.dispose();
+            }
+        }));
+
+        panel.add(title);
+        panel.add(detail);
+        panel.add(actions);
+
+        dialog.add(panel, BorderLayout.CENTER);
+        dialog.pack();
+        dialog.setLocationRelativeTo(this);
+        dialog.setVisible(true);
+        return confirmed[0];
     }
 
     /* ---------------- 死局检测 ---------------- */
