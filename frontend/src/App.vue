@@ -205,6 +205,7 @@ async function backToMenu() {
   }
   game.clear()
   cheatBuffer.length = 0
+  seedVisible.value = false
   await refreshSlots()
   screen.value = 'menu'
 }
@@ -217,9 +218,13 @@ function quit() {
   }
   game.clear()
   cheatBuffer.length = 0
+  seedVisible.value = false
   screen.value = 'menu'
   notice.value = '已退出游戏（网页里可以直接关闭标签页）'
 }
+
+/** 是否在游戏内展开显示种子（默认不显示，玩家主动点按钮才看）。 */
+const seedVisible = ref(false)
 
 async function copySeed() {
   const code = game.state.value?.seedCode
@@ -232,6 +237,11 @@ async function copySeed() {
   } catch {
     game.setMessage(`种子：${code}（复制失败，请手动选中）`)
   }
+}
+
+/** 展开/收起种子显示。 */
+function toggleSeed() {
+  seedVisible.value = !seedVisible.value
 }
 </script>
 
@@ -314,13 +324,20 @@ async function copySeed() {
         <button class="btn small" @click="game.showHint()">提示演示 (H)</button>
         <button class="btn small" @click="game.shiftLevel(-1)">上一关</button>
         <button class="btn small primary" @click="game.shiftLevel(1)">下一关</button>
-        <button class="btn small" @click="copySeed()">复制种子</button>
+        <button class="btn small" @click="toggleSeed()">
+          {{ seedVisible ? '隐藏种子' : '查看种子' }}
+        </button>
         <button class="btn small" @click="openSlots('game')">存档 / 读档</button>
         <button class="btn small ghost" @click="backToMenu()">返回主菜单 (Esc)</button>
       </div>
 
+      <!-- 种子默认不显示，玩家点「查看种子」才展开 -->
+      <div v-if="seedVisible" class="seedbox">
+        <span class="seedline">当前种子：<code>{{ game.state.value.seedCode }}</code></span>
+        <button class="btn small ghost" @click="copySeed()">复制</button>
+      </div>
+
       <p class="status">{{ status }}</p>
-      <p class="seedline">种子：<code>{{ game.state.value.seedCode }}</code></p>
     </section>
 
     <!-- 存读档 -->

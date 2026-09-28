@@ -66,17 +66,42 @@ body {
   font-size: 1.1rem;
 }
 
+/* 主菜单：标题与按钮整体居中 */
+.panel.menu {
+  text-align: center;
+}
+
+.panel.menu h2 {
+  font-size: 1.35rem;
+  letter-spacing: 0.04em;
+}
+
 .menu-buttons {
   display: flex;
   flex-direction: column;
   gap: 10px;
+  width: 100%;
   max-width: 300px;
+  margin: 0 auto;
 }
 
 .menu-buttons.row {
   flex-direction: row;
   flex-wrap: wrap;
+  justify-content: center;
   max-width: none;
+}
+
+/* 主菜单里的折叠关卡列表限宽居中，列表内容仍左对齐好读 */
+.panel.menu .levels {
+  text-align: left;
+  width: 100%;
+  max-width: 620px;
+  margin: 0 auto;
+}
+
+.panel.menu .levels summary {
+  text-align: center;
 }
 
 .btn {
@@ -189,6 +214,19 @@ body {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   color: var(--text);
   letter-spacing: 0.08em;
+}
+
+/* 种子默认隐藏，玩家点「查看种子」后才展开这一条 */
+.seedbox {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  padding: 8px 14px;
+  border: 1px dashed var(--line);
+  border-radius: 10px;
+  background: #10152a;
 }
 
 .notice {
