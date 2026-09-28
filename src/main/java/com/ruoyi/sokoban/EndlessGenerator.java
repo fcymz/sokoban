@@ -47,32 +47,46 @@ public final class EndlessGenerator {
     private static final int MAX_MEASUREMENTS = 8;
     /** 度量用的 BFS 状态上限，超过就认为这关足够复杂。 */
     private static final int MEASURE_STATE_LIMIT = 150000;
-    /** 通关走法数量上限：第 {@value #STRICT_FROM_LEVEL} 层之后必须不超过这个数。 */
+    /** 通关解法数量上限：第 {@value #STRICT_FROM_LEVEL} 层之后必须不超过这个数。 */
     private static final int MAX_SOLUTIONS = 10;
-    /** 从第几层之后开始强制“走法不多于 {@value #MAX_SOLUTIONS} 种”。 */
+    /** 从第 {@value #STRICT_FROM_LEVEL} 层之后开始强制“解法不多于 {@value #MAX_SOLUTIONS} 种”。 */
     private static final int STRICT_FROM_LEVEL = 20;
     /** 严格模式下要求最短解不少于多少步，避免生成两步通关的水关。 */
     private static final int STRICT_MIN_MOVES = 15;
-    /** 走法统计的反向可达状态上限。 */
-    private static final int SOLUTION_STATE_LIMIT = 40000;
-    /** 走法统计的正向路径搜索节点上限。 */
+    /** 解法统计的搜索节点上限。 */
     private static final int SOLUTION_PATH_LIMIT = 50000;
-    /** 严格模式下的生成时间预算（纳秒）。 */
-    private static final long STRICT_BUDGET_NANOS = 4000000000L;
-    /** 严格模式下最多对几个候选做走法统计。 */
-    private static final int MAX_STRICT_MEASUREMENTS = 120;
+    /** 严格模式下生成一层的时间预算（纳秒）。 */
+    private static final long STRICT_BUDGET_NANOS = 6000000000L;
     /** 严格模式下最多尝试生成多少次（失败的尝试很便宜，可以多试）。 */
-    private static final int MAX_STRICT_ATTEMPTS = 6000;
+    private static final int MAX_STRICT_ATTEMPTS = 4000;
     /** 内部墙占比：基础密度，以及 20 层之后额外增加的幅度与上限。 */
     private static final double WALL_RATIO_BASE = 0.16d;
     private static final double WALL_RATIO_EXTRA_PER_LEVEL = 0.02d;
     private static final double WALL_RATIO_MAX = 0.38d;
     /** 单层最多箱子数。 */
     private static final int MAX_BOXES = 3;
-    /** 20 层之后（要求走法很少）时的箱子数上限：箱子越多出路越多。 */
-    private static final int MAX_BOXES_STRICT = 1;
-    /** 迷宫地图的环路比例（相对房间数）。 */
-    private static final double MAZE_LOOP_RATIO = 0.08d;
+    /**
+     * 严格模式（第 {@value #STRICT_FROM_LEVEL} 层之后）的箱子数：<b>固定</b>这个数。
+     *
+     * <p>箱子太少（比如 1 个）关卡会显得很空，玩起来没内容；但箱子一多走法数量又会暴涨，
+     * 所以严格模式换用 {@link #attemptCorridors} 的“强制走廊”结构来生成，
+     * 让走法数量与箱子数脱钩。</p>
+     */
+    private static final int MIN_BOXES_STRICT = 3;
+
+    /** 严格模式的箱子数；默认 {@value #MIN_BOXES_STRICT}，仅供自检与调参覆盖。 */
+    private int strictBoxCount = MIN_BOXES_STRICT;
+
+    /**
+     * 覆盖严格模式的箱子数。
+     *
+     * @param count 箱子数，小于 1 时按 1 处理
+     */
+    void setStrictBoxCount(int count) {
+        this.strictBoxCount = Math.max(1, count);
+    }
+
+
     /** 无尽模式下，箱子开局到它自己专属目标点的曼哈顿距离下限。 */
     private static final int MIN_BOX_TARGET_DISTANCE = 7;
 
@@ -169,45 +183,45 @@ public final class EndlessGenerator {
     }
 
     /**
-     * 20 层之后：既要求通关走法不多于 {@value #MAX_SOLUTIONS} 种，
-     * 又要求最短解不少于 {@value #STRICT_MIN_MOVES} 步。
+     * 第 {@value #STRICT_FROM_LEVEL} 层之后：既要<b>箱子（和目标点）不少于
+     * {@value #MIN_BOXES_STRICT} 个</b>，又要解法不多于 {@value #MAX_SOLUTIONS} 种，
+     * 还要保证最短解不少于 {@value #STRICT_MIN_MOVES} 步。
      *
-     * <p>只卡“走法少”会出问题：迷宫走廊里很容易生成两步就能通关的水关，
-     * 所以两个条件必须一起满足。为了避免个别地图把统计跑爆，这里设了总时间预算。</p>
+     * <h3>为什么这里换了生成方式</h3>
+     * “箱子多”和“解法少”在迷宫里是直接冲突的。实测：同一种迷宫地图下，1 个箱子的关卡
+     * 只有 1 种解法，2 个箱子是 6~9 种，3 个箱子直接上千——因为每个箱子都能被推来推去，
+     * 几个箱子的动作还能任意交错，组合数量是爆炸的。也就是说在迷宫里想同时要
+     * “3 个箱子”和“解法 &lt;= 10 种”，只能生成出一堆水关。
+     *
+     * <p>所以严格模式换成“单向走廊”结构（见 {@link #attemptCorridors}）：每条走廊里一个箱子，
+     * 目标点顶在走廊的一头，走廊上下都是墙，箱子只能沿着走廊朝目标点单向推进。
+     * 于是每个箱子到自己的目标点只有一条路，解法数量就退化成
+     * <b>几个箱子推进去的先后顺序</b>（3 个箱子最多 3! = 6 种），实测是 3 种，
+     * 稳稳压在 {@value #MAX_SOLUTIONS} 种以内。这样才真正做到“箱子管够、解法还少”。</p>
      */
     private Generated generateStrict(int number, int width, int height, int scale,
                                      int targetPulls, int minPulls, Random rnd) {
         long deadline = System.nanoTime() + STRICT_BUDGET_NANOS;
         Generated easiestBest = null;
         int easiestMoves = -1;
-        Generated fewestBest = null;
-        int fewest = Integer.MAX_VALUE;
         Generated anyBest = null;
         int measured = 0;
 
-        for (int attempt = 0; attempt < MAX_STRICT_ATTEMPTS && measured < MAX_STRICT_MEASUREMENTS; attempt++) {
+        for (int attempt = 0; attempt < MAX_STRICT_ATTEMPTS; attempt++) {
             if (System.nanoTime() > deadline) {
                 break;
             }
-            Generated candidate = attempt(number, width, height, scale,
-                    targetPulls, minPulls, true, rnd);
+            Generated candidate = attemptCorridors(number, width, height, rnd);
             if (candidate == null) {
                 continue;
             }
             measured++;
-            SolutionCounter.Result routes = SolutionCounter.count(candidate.getLevel(),
-                    MAX_SOLUTIONS, SOLUTION_STATE_LIMIT, SOLUTION_PATH_LIMIT);
+            SolutionCounter.Result plans = SolutionCounter.countPlans(candidate.getLevel(),
+                    MAX_SOLUTIONS, SOLUTION_PATH_LIMIT);
             if (anyBest == null) {
                 anyBest = candidate;
             }
-            if (!routes.isExact()) {
-                continue;
-            }
-            if (routes.getCount() > MAX_SOLUTIONS) {
-                if (routes.getCount() < fewest) {
-                    fewest = routes.getCount();
-                    fewestBest = candidate;
-                }
+            if (plans.getCount() > MAX_SOLUTIONS) {
                 continue;
             }
 
@@ -227,13 +241,10 @@ public final class EndlessGenerator {
         if (easiestBest != null) {
             return easiestBest;
         }
-        if (fewestBest != null) {
-            return fewestBest;
-        }
         if (anyBest != null) {
             return anyBest;
         }
-        return fallback(width, height);
+        return fallback(width, height, true);
     }
 
     /** 20 层及以前：用最短解衡量难度，挑最难的候选。 */
@@ -248,7 +259,7 @@ public final class EndlessGenerator {
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS && measured < MAX_MEASUREMENTS; attempt++) {
             Generated candidate = attempt(number, width, height, scale,
-                    targetPulls, minPulls, false, rnd);
+                    targetPulls, minPulls, rnd);
             if (candidate == null) {
                 continue;
             }
@@ -277,7 +288,7 @@ public final class EndlessGenerator {
         if (best != null) {
             return best;
         }
-        return fallback(width, height);
+        return fallback(width, height, false);
     }
 
     /** 目标拉箱次数：层数越高，把箱子拉得越乱。 */
@@ -296,10 +307,6 @@ public final class EndlessGenerator {
         return Math.min(WALL_RATIO_MAX, WALL_RATIO_BASE + extra);
     }
 
-    /** 该层允许的最大箱子数。 */
-    private static int maxBoxesFor(boolean strict) {
-        return strict ? MAX_BOXES_STRICT : MAX_BOXES;
-    }
 
     /**
      * 以“墙段游走”的方式铺墙：从随机点出发连续铺一小段，偶尔拐弯，
@@ -343,87 +350,6 @@ public final class EndlessGenerator {
         }
     }
 
-    /**
-     * 挖一个迷宫式走廊地图：内部先全部填成墙，再用递归回溯法在“房间格”之间挖出
-     * 一格宽的通道，最后随机打通少量墙形成环路。
-     *
-     * <p>没有环路时玩家永远绕不到箱子另一侧，箱子只能单向推进；环路数量决定玩家
-     * 有多少次“绕后”的机会，也就决定了通关走法的多少。</p>
-     *
-     * @param wall      输出：墙的分布
-     * @param loopRatio 环路数量相对房间数的比例
-     */
-    private static void carveMaze(boolean[][] wall, int width, int height,
-                                  double loopRatio, Random random) {
-        for (int y = 1; y < height - 1; y++) {
-            for (int x = 1; x < width - 1; x++) {
-                wall[y][x] = true;
-            }
-        }
-        int roomCols = (width - 1) / 2;
-        int roomRows = (height - 1) / 2;
-        if (roomCols < 2 || roomRows < 2) {
-            return;
-        }
-
-        boolean[] visited = new boolean[roomCols * roomRows];
-        Deque<int[]> stack = new ArrayDeque<int[]>();
-        List<int[]> options = new ArrayList<int[]>();
-        int[][] steps = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-
-        int startCol = random.nextInt(roomCols);
-        int startRow = random.nextInt(roomRows);
-        visited[startRow * roomCols + startCol] = true;
-        wall[1 + startRow * 2][1 + startCol * 2] = false;
-        stack.push(new int[] {startCol, startRow});
-
-        while (!stack.isEmpty()) {
-            int[] current = stack.peek();
-            options.clear();
-            for (int[] step : steps) {
-                int nc = current[0] + step[0];
-                int nr = current[1] + step[1];
-                if (nc < 0 || nr < 0 || nc >= roomCols || nr >= roomRows) {
-                    continue;
-                }
-                if (visited[nr * roomCols + nc]) {
-                    continue;
-                }
-                options.add(new int[] {nc, nr});
-            }
-            if (options.isEmpty()) {
-                stack.pop();
-                continue;
-            }
-            int[] next = options.get(random.nextInt(options.size()));
-            int midX = 1 + current[0] * 2 + (next[0] - current[0]);
-            int midY = 1 + current[1] * 2 + (next[1] - current[1]);
-            wall[midY][midX] = false;
-            wall[1 + next[1] * 2][1 + next[0] * 2] = false;
-            visited[next[1] * roomCols + next[0]] = true;
-            stack.push(next);
-        }
-
-        // 打通少量墙形成环路，给玩家留出“绕到箱子另一侧”的机会
-        int loops = (int) Math.round(roomCols * roomRows * loopRatio);
-        int guard = 0;
-        while (loops > 0 && guard++ < loops * 60) {
-            int x = 1 + random.nextInt(width - 2);
-            int y = 1 + random.nextInt(height - 2);
-            if (!wall[y][x]) {
-                continue;
-            }
-            boolean horizontal = !wall[y][x - 1] && !wall[y][x + 1]
-                    && wall[y - 1][x] && wall[y + 1][x];
-            boolean vertical = !wall[y - 1][x] && !wall[y + 1][x]
-                    && wall[y][x - 1] && wall[y][x + 1];
-            if (horizontal || vertical) {
-                wall[y][x] = false;
-                loops--;
-            }
-        }
-    }
-
     private static int countOpen(boolean[][] wall, int width, int height) {
         int open = 0;
         for (int y = 1; y < height - 1; y++) {
@@ -439,7 +365,7 @@ public final class EndlessGenerator {
     /* ---------------- 单次尝试 ---------------- */
 
     private Generated attempt(int number, int width, int height, int scale,
-                              int targetPulls, int minPulls, boolean strict, Random random) {
+                              int targetPulls, int minPulls, Random random) {
         boolean[][] wall = new boolean[height][width];
         for (int x = 0; x < width; x++) {
             wall[0][x] = true;
@@ -453,13 +379,8 @@ public final class EndlessGenerator {
         // 以“墙段游走”的方式铺墙：墙体连成串，形成走廊和拐角，
         // 而不是在一片空地上撒几根孤立柱子。这既能避免空旷场地，也能收紧箱子的活动余地。
         int interior = (width - 2) * (height - 2);
-        int boxes = maxBoxesFor(strict);
-        int boxCount = boxCountFor(scale, interior, boxes);
-        if (strict) {
-            // 20 层之后改用迷宫式走廊：通道只有一格宽，箱子几乎没法掉头，
-            // 通关走法自然就被压到很少。
-            carveMaze(wall, width, height, MAZE_LOOP_RATIO, random);
-        } else {
+        int boxCount = boxCountFor(scale, interior, MAX_BOXES);
+        {
             int minOpen = Math.max(boxCount * 5 + 6, (int) Math.round(interior * 0.42));
             int wallTarget = (int) Math.round(interior * wallRatioFor(number));
             carveWalls(wall, width, height, wallTarget, minOpen, random);
@@ -473,7 +394,7 @@ public final class EndlessGenerator {
                 }
             }
         }
-        boxCount = boxCountFor(scale, open.size(), boxes);
+        boxCount = boxCountFor(scale, open.size(), MAX_BOXES);
         if (open.size() < boxCount + 3) {
             return null;
         }
@@ -663,9 +584,7 @@ public final class EndlessGenerator {
             // 拉完还全是已解状态，等于开局即通关，丢弃
             return null;
         }
-
         List<SokobanGame.Dir> solution = reverseToSolution(steps);
-
         // 按最终棋盘的“行优先”顺序整理配对关系，交给 Level 校验并保存
         int[] pairTargets = new int[boxCount];
         int pairIndex = 0;
@@ -692,12 +611,333 @@ public final class EndlessGenerator {
         return new Generated(level, solution);
     }
 
+    /* ---------------- 严格模式：强制走廊 ---------------- */
+
+    /**
+     * 严格模式的关卡结构：几条互不干扰的<b>单向走廊</b>。
+     *
+     * <h3>结构</h3>
+     * <ul>
+     *   <li>每条走廊占一整行，走廊的上下两行都是墙，箱子只能在走廊里左右移动；</li>
+     *   <li>每条走廊里一个箱子、一个目标点，两者相隔 {@value #MIN_BOX_TARGET_DISTANCE} 格，
+     *       目标点顶在走廊的一头——箱子除了朝着目标点推，没有第二个方向可走；</li>
+     *   <li>走廊两侧各有一条贯通上下的竖井，顶上还有一条横向通路，玩家靠它们绕到
+     *       每个箱子远离目标点的那一侧；</li>
+     *   <li>墙上会随机开几个一格深的凹槽，让每张地图长得不一样。凹槽都在走廊之外的墙行上，
+     *       箱子进不去，所以不会多出别的解法。</li>
+     * </ul>
+     *
+     * <h3>为什么这样就不会有很多种解法</h3>
+     * 每个箱子要到达自己的目标点，路线只有一条（沿着走廊朝目标点走
+     * {@value #MIN_BOX_TARGET_DISTANCE} 格），玩家只是需要绕到箱子外侧而已。
+     * 于是解法数量就等于<b>几个箱子推进去的先后顺序</b>：3 个箱子最多 3! = 6 种，实测 3 种，
+     * 稳稳压在 {@value #MAX_SOLUTIONS} 种以内。这样就能同时满足“箱子不少于
+     * {@value #MIN_BOXES_STRICT} 个”和“解法不多于 {@value #MAX_SOLUTIONS} 种”，
+     * 而不是靠把箱子减到一个来回避问题。
+     */
+    private Generated attemptCorridors(int number, int width, int height, Random random) {
+        int boxes = strictBoxCount;
+        int distance = MIN_BOX_TARGET_DISTANCE;
+        // 走廊里“目标点这一头”随机挑左右各一半，地图因此看起来不一样；
+        // 无论朝哪边，箱子都只能沿着走廊朝目标点单向推进。
+        boolean goalOnLeft = random.nextBoolean();
+        // 布局（以“目标点在左边”为例）：
+        //   x=0 墙 | x=1 左竖井 | x=2 目标点 | …… distance 格 …… | x=9 箱子 | x=10 玩家站位 | x=11 右竖井 | x=12 墙
+        int leftLaneX = 1;
+        int rightLaneX = leftLaneX + 2 + distance + 1;
+        int goalX = goalOnLeft ? leftLaneX + 1 : rightLaneX - 1;
+        int boxX = goalOnLeft ? goalX + distance : goalX - distance;
+        int w = Math.max(rightLaneX + 2, width);
+        int h = Math.max(boxes * 2 + 2, height);
+        if (boxX <= leftLaneX || boxX >= rightLaneX) {
+            return null;
+        }
+
+        int[] goalCell = new int[boxes];
+        int[] boxCell = new int[boxes];
+        char[] grid = new char[h * w];
+        Arrays.fill(grid, Level.WALL);
+
+        for (int i = 0; i < boxes; i++) {
+            int row = 1 + i * 2;
+            // 整条走廊打通；走廊上下两行仍是墙，箱子只能左右走
+            for (int x = leftLaneX; x <= rightLaneX; x++) {
+                grid[row * w + x] = Level.FLOOR;
+            }
+            goalCell[i] = row * w + goalX;
+            boxCell[i] = row * w + boxX;
+        }
+        // 左右两条竖井贯通上下，玩家可以在几条走廊之间走动
+        for (int y = 0; y < h; y++) {
+            grid[y * w + leftLaneX] = Level.FLOOR;
+            grid[y * w + rightLaneX] = Level.FLOOR;
+        }
+        for (int i = 0; i < boxes; i++) {
+            grid[goalCell[i]] = Level.GOAL;
+            grid[boxCell[i]] = Level.BOX;
+        }
+
+        // 顶上开一条横向通路，玩家可以从竖井顶端横着绕到任意一条走廊的正上方
+        int topRow = 0;
+        for (int x = leftLaneX; x <= rightLaneX; x++) {
+            grid[topRow * w + x] = Level.FLOOR;
+        }
+        // 墙上随机开几个死胡同凹槽，让每张地图长得不一样；
+        // 凹槽只有一格深、挂在走廊之外的墙行上，箱子进不去，不会多出别的解法
+        int pockets = 3 + random.nextInt(5);
+        for (int p = 0; p < pockets; p++) {
+            int row = 1 + random.nextInt(Math.max(1, h - 2));
+            int x = goalOnLeft ? rightLaneX - 1 - random.nextInt(2)
+                    : leftLaneX + 1 + random.nextInt(2);
+            if (grid[row * w + x] == Level.WALL) {
+                grid[row * w + x] = Level.FLOOR;
+            }
+        }
+        // 走廊行上再随机挖几个坑，进一步打散外观
+        for (int p = 0; p < boxes; p++) {
+            int row = 1 + p * 2;
+            int x = goalOnLeft ? rightLaneX - 1 : leftLaneX + 1;
+            grid[row * w + x] = Level.FLOOR;
+        }
+
+        // 玩家出生在最下面那条走廊下方的竖井里（那一行不是走廊，箱子到不了）
+        int laneStartY = 1 + boxes * 2;
+        int firstLaneX = goalOnLeft ? rightLaneX : leftLaneX;
+        int playerX = firstLaneX;
+        int playerY = laneStartY;
+        grid[playerY * w + playerX] = Level.PLAYER;
+
+        SokobanGame.Dir pushDir = goalOnLeft ? SokobanGame.Dir.LEFT : SokobanGame.Dir.RIGHT;
+        int firstStandX = goalOnLeft ? boxX + 1 : boxX - 1;
+        int farLaneX = goalOnLeft ? leftLaneX : rightLaneX;
+
+        int[] live = boxCell.clone();
+        List<SokobanGame.Dir> solution = new ArrayList<SokobanGame.Dir>();
+        for (int i = 0; i < boxes; i++) {
+            int row = 1 + i * 2;
+            // 先绕到箱子外侧（远离目标点的那一侧）
+            if (!walkTo(grid, w, playerY * w + playerX, row * w + firstStandX, live, solution)) {
+                return null;
+            }
+            playerX = firstStandX;
+            playerY = row;
+            // 一路朝目标点推
+            int box = live[i];
+            for (int step = 0; step < distance; step++) {
+                if (goalOnLeft) {
+                    if (!pushLeft(grid, w, box, live, solution)) {
+                        return null;
+                    }
+                    box--;
+                } else {
+                    if (!pushRight(grid, w, box, live, solution)) {
+                        return null;
+                    }
+                    box++;
+                }
+                playerX += pushDir.dx;
+            }
+            if (i == boxes - 1) {
+                // 最后一个箱子到位就已经通关，游戏之后不再接受操作，所以就此停手
+                break;
+            }
+            // 箱子已经顶到走廊尽头，玩家从另一侧的竖井、经顶上通路绕到上一条走廊
+            int nextStandX = goalOnLeft ? boxX + 1 : boxX - 1;
+            int nextRow = 1 + (i + 1) * 2;
+            int waypoint = row * w + farLaneX;
+            if (!walkTo(grid, w, playerY * w + playerX, waypoint, live, solution)) {
+                return null;
+            }
+            playerX = farLaneX;
+            playerY = row;
+            if (!walkTo(grid, w, playerY * w + playerX, 0 * w + farLaneX, live, solution)) {
+                return null;
+            }
+            playerY = 0;
+            if (!walkTo(grid, w, playerY * w + playerX, nextRow * w + farLaneX, live, solution)) {
+                return null;
+            }
+            playerY = nextRow;
+            if (!walkTo(grid, w, playerY * w + playerX, nextRow * w + nextStandX, live, solution)) {
+                return null;
+            }
+            playerX = nextStandX;
+            playerX = nextStandX;
+            playerY = nextRow;
+        }
+
+        String[] rows = new String[h];
+        for (int y = 0; y < h; y++) {
+            rows[y] = new String(grid, y * w, w);
+        }
+        Level level = new Level("无尽第 " + number + " 层", goalCell, rows);
+        if (!solutionWorks(level, solution)) {
+            return null;
+        }
+        if (!everyBoxFarFromTarget(level, distance)) {
+            return null;
+        }
+        return new Generated(level, solution);
+    }
+
+    /**
+     * 玩家把箱子往左推一格。
+     *
+     * @param grid   字符地图（一维，行优先）
+     * @param width  宽
+     * @param box    箱子当前下标
+     * @param boxes  所有箱子的位置（会被就地更新）
+     * @param steps  操作序列（会被追加推箱那一步）
+     * @return 推得动返回 {@code true}
+     */
+    private static boolean pushLeft(char[] grid, int width, int box, int[] boxes,
+                                    List<SokobanGame.Dir> steps) {
+        int left = box - 1;
+        if (left < 0 || grid[left] == Level.WALL || contains(boxes, left)) {
+            return false;
+        }
+        for (int i = 0; i < boxes.length; i++) {
+            if (boxes[i] == box) {
+                boxes[i] = left;
+                break;
+            }
+        }
+        steps.add(SokobanGame.Dir.LEFT);
+        return true;
+    }
+
+    /**
+     * 玩家把箱子往右推一格。
+     *
+     * @param grid   字符地图（一维，行优先）
+     * @param width  宽
+     * @param box    箱子当前下标
+     * @param boxes  所有箱子的位置（会被就地更新）
+     * @param steps  操作序列（会被追加推箱那一步）
+     * @return 推得动返回 {@code true}
+     */
+    private static boolean pushRight(char[] grid, int width, int box, int[] boxes,
+                                     List<SokobanGame.Dir> steps) {
+        int right = box + 1;
+        if (right >= grid.length || grid[right] == Level.WALL || contains(boxes, right)) {
+            return false;
+        }
+        for (int i = 0; i < boxes.length; i++) {
+            if (boxes[i] == box) {
+                boxes[i] = right;
+                break;
+            }
+        }
+        steps.add(SokobanGame.Dir.RIGHT);
+        return true;
+    }
+    /**
+     * 玩家把箱子往左推一格。
+     *
+     * @param grid   字符地图（一维，行优先）
+     * @param width  宽
+     * @param box    箱子当前下标
+     * @param boxes  所有箱子的位置（会被就地更新）
+     * @param steps  操作序列（会被追加推箱那一步）
+     * @return 推得动返回 {@code true}
+     */
+    /**
+     * 在只绕墙（不推箱子）的前提下，从 (fromX,fromY) 走到 (toX,toY)，
+     * 并把这串走动方向追加到 {@code steps}。
+     *
+     * @return 能走到返回 {@code true}
+     */
+    private static boolean walkTo(boolean[][] wall, int[] boxes,
+                                  int fromX, int fromY, int toX, int toY,
+                                  List<SokobanGame.Dir> steps) {
+        int width = wall[0].length;
+        int height = wall.length;
+        int start = fromY * width + fromX;
+        int target = toY * width + toX;
+        if (start == target) {
+            return true;
+        }
+        int[] previous = new int[width * height];
+        Arrays.fill(previous, -2);
+        previous[start] = -1;
+        Deque<Integer> queue = new ArrayDeque<Integer>();
+        queue.add(Integer.valueOf(start));
+        while (!queue.isEmpty()) {
+            int current = queue.poll().intValue();
+            int cx = current % width;
+            int cy = current / width;
+            for (SokobanGame.Dir dir : SokobanGame.Dir.values()) {
+                int nx = cx + dir.dx;
+                int ny = cy + dir.dy;
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+                    continue;
+                }
+                if (wall[ny][nx]) {
+                    continue;
+                }
+                int next = ny * width + nx;
+                if (previous[next] != -2 || contains(boxes, next)) {
+                    continue;
+                }
+                previous[next] = current;
+                queue.add(Integer.valueOf(next));
+            }
+        }
+        if (previous[target] == -2) {
+            return false;
+        }
+        LinkedList<SokobanGame.Dir> path = new LinkedList<SokobanGame.Dir>();
+        int current = target;
+        while (current != start) {
+            int before = previous[current];
+            path.addFirst(dirBetween(before % width, before / width,
+                    current % width, current / width));
+            current = before;
+        }
+        steps.addAll(path);
+        return true;
+    }
+
+    private static boolean contains(int[] cells, int value) {
+        for (int cell : cells) {
+            if (cell == value) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * 用字符地图版本的地图数据走位：墙按 {@link Level#WALL} 判断，箱子按给定格子判断。
+     *
+     * @param grid   字符地图
+     * @param boxes  箱子当前所在格子的下标
+     * @param fromX  起点列
+     * @param fromY  起点行
+     * @param toX    终点列
+     * @param toY    终点行
+     * @param steps  走动方向会追加到这里
+     * @return 能走到返回 {@code true}
+     */
+    private static boolean walkTo(char[][] grid, int[] boxes,
+                                  int fromX, int fromY, int toX, int toY,
+                                  List<SokobanGame.Dir> steps) {
+        int height = grid.length;
+        int width = grid[0].length;
+        boolean[][] wall = new boolean[height][width];
+        for (int y = 0; y < height; y++) {
+            for (int x = 0; x < width; x++) {
+                wall[y][x] = grid[y][x] == Level.WALL;
+            }
+        }
+        return walkTo(wall, boxes, fromX, fromY, toX, toY, steps);
+    }
+
     /**
      * 选目标点：贴着随机一条边散开，另一侧整片空间留给箱子。
      *
      * <p>配对模式下每个箱子只需要离<b>自己的</b>目标点足够远，所以不必再把目标点挤成一团；
-     * 但目标点仍然要待在某一侧，否则箱子无处可去（离自己目标点 {@value #MIN_BOX_TARGET_DISTANCE} 步
-     * 在 {@code 8x7} 这类小地图上已经接近极限距离了）。</p>
+     * 但目标点仍然要待在某一侧，否则箱子无处可去。</p>
      *
      * @param open   所有空格
      * @param count  目标点数量
@@ -1140,9 +1380,13 @@ public final class EndlessGenerator {
      *
      * @param width  宽度
      * @param height 高度
+     * @param strict 是否使用严格模式的兜底（箱子数与走法数都要达标）
      * @return 关卡与一条通关步骤
      */
-    private Generated fallback(int width, int height) {
+    private Generated fallback(int width, int height, boolean strict) {
+        if (strict) {
+            return fallbackStrict(width, height);
+        }
         int w = Math.max(8, width);
         int h = Math.max(8, height);
         char[][] grid = new char[h][w];
@@ -1178,5 +1422,186 @@ public final class EndlessGenerator {
         }
         int[] pairTargets = new int[] {goalY * w + goalX};
         return new Generated(new Level("无尽兜底关卡", pairTargets, rows), solution);
+    }
+
+    /**
+     * 严格模式的兜底关卡：用 {@link #attemptCorridors} 的“强制走廊”结构，配合一组固定的
+     * 布局参数反复尝试，直到造出一个满足“箱子 >= {@value #MIN_BOXES_STRICT} 个”的关卡。
+     *
+     * <p>{@code attemptCorridors} 造出来的关卡里，每个箱子都只能沿着自己那条走廊朝目标点
+     * 单向推进，所以走法数量天然被压在 {@value #MAX_SOLUTIONS} 种以内，不需要再筛。</p>
+     *
+     * @param width  宽度
+     * @param height 高度
+     * @return 关卡与一条通关步骤
+     */
+
+    private Generated fallbackStrict(int width, int height) {
+        int boxes = MIN_BOXES_STRICT;
+        int distance = MIN_BOX_TARGET_DISTANCE;
+        // 三个箱子各占一条竖井，左右各留一条竖井给玩家绕路
+        int[] shotX = new int[boxes];
+        for (int i = 0; i < boxes; i++) {
+            shotX[i] = 1 + i * 2;
+        }
+        int leftLaneX = 0;
+        int rightLaneX = 1 + (boxes - 1) * 2 + 1;
+        int firstRow = 1;
+        int lastRow = firstRow + distance + 1;
+        int w = Math.max(rightLaneX + 1, width);
+        int h = Math.max(lastRow + 1, height);
+
+        int[] boxRow = new int[boxes];
+        int[] goalRow = new int[boxes];
+        int[] pairTargets = new int[boxes];
+        for (int i = 0; i < boxes; i++) {
+            boxRow[i] = firstRow + 1;
+            goalRow[i] = boxRow[i] + distance;
+            pairTargets[i] = goalRow[i] * w + shotX[i];
+        }
+
+        char[] grid = new char[h * w];
+        Arrays.fill(grid, Level.WALL);
+
+        // 每条箱子竖井：从顶上一行一直通到目标点，箱子只能上下移动
+        for (int i = 0; i < boxes; i++) {
+            for (int y = firstRow; y <= goalRow[i]; y++) {
+                grid[y * w + shotX[i]] = Level.FLOOR;
+            }
+        }
+        // 左右两条贯通竖井，玩家靠它们在几条箱子竖井之间走动
+        for (int y = 0; y <= lastRow; y++) {
+            grid[y * w + leftLaneX] = Level.FLOOR;
+            grid[y * w + rightLaneX] = Level.FLOOR;
+        }
+        // 最上面一行全部打通，玩家可以从任意一条竖井横着走到另一条
+        for (int x = leftLaneX; x <= rightLaneX; x++) {
+            grid[firstRow * w + x] = Level.FLOOR;
+        }
+        for (int i = 0; i < boxes; i++) {
+            grid[boxRow[i] * w + shotX[i]] = Level.BOX;
+            grid[goalRow[i] * w + shotX[i]] = Level.GOAL;
+        }
+
+        // 玩家出生在最右边那条竖井的顶部
+        int playerX = rightLaneX;
+        int playerY = firstRow;
+        grid[playerY * w + playerX] = Level.PLAYER;
+
+        int[] live = new int[boxes];
+        for (int i = 0; i < boxes; i++) {
+            live[i] = boxRow[i] * w + shotX[i];
+        }
+        List<SokobanGame.Dir> solution = new ArrayList<SokobanGame.Dir>();
+        for (int i = 0; i < boxes; i++) {
+            // 先绕到箱子正上方
+            int above = (boxRow[i] - 1) * w + shotX[i];
+            if (!walkTo(grid, w, playerY * w + playerX, above, live, solution)) {
+                return null;
+            }
+            playerX = shotX[i];
+            playerY = boxRow[i] - 1;
+            // 一路往下推 distance 格，箱子正好落在目标点上
+            int box = live[i];
+            for (int step = 0; step < distance; step++) {
+                if (!pushDown(grid, w, box, live, solution)) {
+                    return null;
+                }
+                box += w;
+                playerY++;
+            }
+            if (i == boxes - 1) {
+                // 最后一个箱子到位就已经通关，游戏之后不再接受操作，所以就此停手
+                break;
+            }
+        }
+
+        // 每一行都必须是完整的 w 个字符，且最后一行不能带换行，
+        // 否则 Level 会多解析出一行空行，整个地图都会错位
+        String[] mapRows = new String[h];
+        for (int y = 0; y < h; y++) {
+            mapRows[y] = new String(grid, y * w, w);
+        }
+        return new Generated(new Level("无尽兜底关卡", pairTargets, mapRows), solution);    }
+
+    /**
+     * 在给定地图上从 {@code from} 走到 {@code to}，箱子当作障碍。
+     *
+     * @param grid  字符地图（一维，行优先）
+     * @param width 宽
+     * @param from  起点下标
+     * @param to    终点下标
+     * @param boxes 箱子当前所在的下标
+     * @param steps 走动方向会追加到这里
+     * @return 能走到返回 {@code true}
+     */
+    private static boolean walkTo(char[] grid, int width, int from, int to,
+                                  int[] boxes, List<SokobanGame.Dir> steps) {
+        int height = grid.length / width;
+        int[] previous = new int[grid.length];
+        Arrays.fill(previous, -2);
+        previous[from] = -1;
+        Deque<Integer> queue = new ArrayDeque<Integer>();
+        queue.add(Integer.valueOf(from));
+        while (!queue.isEmpty()) {
+            int current = queue.poll().intValue();
+            int cx = current % width;
+            int cy = current / width;
+            for (SokobanGame.Dir dir : SokobanGame.Dir.values()) {
+                int nx = cx + dir.dx;
+                int ny = cy + dir.dy;
+                if (nx < 0 || ny < 0 || nx >= width || ny >= height) {
+                    continue;
+                }
+                int next = ny * width + nx;
+                if (grid[next] == Level.WALL || contains(boxes, next)) {
+                    continue;
+                }
+                if (previous[next] != -2) {
+                    continue;
+                }
+                previous[next] = current;
+                queue.add(Integer.valueOf(next));
+            }
+        }
+        if (previous[to] == -2) {
+            return false;
+        }
+        LinkedList<SokobanGame.Dir> path = new LinkedList<SokobanGame.Dir>();
+        int current = to;
+        while (current != from) {
+            int before = previous[current];
+            path.addFirst(dirBetween(before % width, before / width,
+                    current % width, current / width));
+            current = before;
+        }
+        steps.addAll(path);
+        return true;
+    }
+
+    /**
+     * 玩家推着箱子往下一格。
+     *
+     * @param grid   字符地图（一维，行优先）
+     * @param width  宽
+     * @param box    箱子当前下标
+     * @param boxes  所有箱子的位置（会被就地更新）
+     * @param steps  操作序列（会被追加推箱那一步）
+     * @return 推得动返回 {@code true}
+     */
+    private static boolean pushDown(char[] grid, int width, int box, int[] boxes,
+                                    List<SokobanGame.Dir> steps) {
+        int below = box + width;
+        if (below >= grid.length || grid[below] == Level.WALL || contains(boxes, below)) {
+            return false;
+        }
+        for (int i = 0; i < boxes.length; i++) {
+            if (boxes[i] == box) {
+                boxes[i] = below;
+                break;
+            }
+        }
+        steps.add(SokobanGame.Dir.DOWN);
+        return true;
     }
 }

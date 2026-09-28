@@ -9,20 +9,23 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * 统计一个关卡有多少种“通关走法”。
+ * 统计一个关卡有多少种通关方式。
  *
- * <h3>口径</h3>
- * 以“推一次箱子”为一步，<b>忽略玩家走路</b>。一个走法就是从开局局面出发，
- * 经过一串推箱到达通关状态（所有箱子都在目标点上）的路径。
- *
- * <p>路径要求<b>途中不重复经过同一个局面</b>。这是必须的：箱子可以被推走再推回来，
- * 否则同一关会算出无穷多种走法。</p>
+ * <h3>两种口径</h3>
+ * <ul>
+ *   <li>{@link #count}：以“推一次箱子”为一步，统计从开局推到通关的<b>路径</b>条数。
+ *       它对小关卡（1~2 个箱子）很好用，但箱子一多就会爆炸——因为
+ *       “同一串推箱、玩家从不同方向绕过去站好”也会被当成不同路径。</li>
+ *   <li>{@link #countPlans}：只统计<b>互不相同的推箱方案</b>，也就是“按什么顺序推哪个箱子、
+ *       往哪个方向推”。玩家怎么走位不算差异。这才是玩家嘴里“这一关有几种解法”的意思，
+ *       也是关卡生成器判定难度的口径。</li>
+ * </ul>
  *
  * <h3>局面归一化</h3>
  * 单纯用“玩家位置 + 箱子集合”表示局面会出问题：玩家在两次推箱之间可以自由走动，
  * 而且开局时玩家的位置也不一定是“刚推完箱子”的位置。所以这里把玩家位置归一化成
  * <b>它所在连通区域里下标最小的格子</b>，这样“走得到但位置不同”的局面会自动合并，
- * 逆向搜索也才能和开局对上。</p>
+ * 逆向搜索也才能和开局对上。
  */
 public final class SolutionCounter {
 
@@ -39,7 +42,7 @@ public final class SolutionCounter {
             this.states = states;
         }
 
-        /** @return 通关走法数量；不精确时含义见 {@link #isExact()}。 */
+        /** @return 通关方式的数量；不精确时含义见 {@link #isExact()}。 */
         public int getCount() {
             return count;
         }
@@ -55,6 +58,19 @@ public final class SolutionCounter {
         /** @return 搜索过程中访问过的局面数。 */
         public int getStates() {
             return states;
+        }
+    }
+
+    /** 一个推箱动作：箱子序号 + 方向序号，用于给“方案”做指纹。 */
+    private static final class Move {
+        private final State next;
+        private final int boxIndex;
+        private final int dirOrdinal;
+
+        Move(State next, int boxIndex, int dirOrdinal) {
+            this.next = next;
+            this.boxIndex = boxIndex;
+            this.dirOrdinal = dirOrdinal;
         }
     }
 
@@ -76,16 +92,39 @@ public final class SolutionCounter {
     private SolutionCounter() {
     }
 
+    /* ---------------- 口径一：推箱路径条数 ---------------- */
+
     /**
-     * 统计通关走法数量。
+     * 统计通关路径条数。
      *
      * @param level      关卡
-     * @param limit      走法数量上限，达到即提前返回
+     * @param limit      数量上限，达到即提前返回
      * @param stateLimit 反向可达搜索的局面数上限
      * @param pathLimit  正向路径搜索的节点数上限
      * @return 统计结果
      */
     public static Result count(Level level, int limit, int stateLimit, int pathLimit) {
+        return countInternal(level, limit, stateLimit, pathLimit, false);
+    }
+
+    /**
+     * 同 {@link #count}，但<b>已经落在自己目标点上的箱子不允许再被推走</b>。
+     *
+     * <p>“箱子推上去了又推下来、再推回去”虽然形式上确实是另一条路径，但玩起来完全是
+     * 同一套走法；箱子越多这种路径就越多，所以需要一个更严格的口径。</p>
+     *
+     * @param level      关卡
+     * @param limit      数量上限，达到即提前返回
+     * @param stateLimit 反向可达搜索的局面数上限
+     * @param pathLimit  正向路径搜索的节点数上限
+     * @return 统计结果
+     */
+    public static Result countStrict(Level level, int limit, int stateLimit, int pathLimit) {
+        return countInternal(level, limit, stateLimit, pathLimit, true);
+    }
+
+    private static Result countInternal(Level level, int limit, int stateLimit, int pathLimit,
+                                        boolean keepPlacedBoxes) {
         boolean paired = level.isPaired();
         int[] startBoxes = level.getBoxStarts();
         // 配对模式下箱子顺序即身份，不能排序
@@ -98,6 +137,8 @@ public final class SolutionCounter {
         // 1) 反向搜索：从通关局面倒推，找出所有“还能走回通关”的局面。
         //    通关时箱子都在目标点上，玩家可能在任意位置；箱子会把空地切成若干块，
         //    每一块都要单独作为起点，否则会漏掉一整片可行局面。
+        //    这里不能照搬“就位箱子不再动”的剪枝：起点处所有箱子都在目标点上，
+        //    一剪枝就一个前驱都展开不了。反向搜索宽松一点没关系，正向统计会再挡一道。
         Set<String> solvable = new HashSet<String>();
         Deque<State> queue = new ArrayDeque<State>();
         Set<Integer> seededRegions = new HashSet<Integer>();
@@ -132,8 +173,8 @@ public final class SolutionCounter {
         }
 
         if (!solvable.contains(key(start))) {
-            // 开局就走不到通关状态
-            return new Result(0, exact, solvable.size());
+            // 开局就走不到通关状态；反向搜索没搜完时不能断定无解
+            return new Result(0, false, solvable.size());
         }
 
         // 2) 正向统计“不重复局面的推箱路径”条数
@@ -141,8 +182,48 @@ public final class SolutionCounter {
         int[] visitedNodes = new int[1];
         Set<String> onPath = new HashSet<String>();
         boolean completed = walk(level, start, solvable, onPath, found, visitedNodes,
-                limit, pathLimit);
+                limit, pathLimit, keepPlacedBoxes);
         return new Result(Math.min(found[0], limit), completed && exact, solvable.size());
+    }
+
+    /**
+     * 深度优先枚举“不重复局面的推箱路径”。
+     *
+     * @return 是否在限制内搜索完成
+     */
+    private static boolean walk(Level level, State current, Set<String> solvable,
+                                Set<String> onPath, int[] found, int[] visitedNodes,
+                                int limit, int pathLimit, boolean keepPlacedBoxes) {
+        if (current.solved(level)) {
+            found[0]++;
+            return true;
+        }
+        if (found[0] >= limit) {
+            return false;
+        }
+        if (++visitedNodes[0] > pathLimit) {
+            return false;
+        }
+
+        String currentKey = key(current);
+        onPath.add(currentKey);
+        boolean completed = true;
+        try {
+            for (Move move : successors(level, current, keepPlacedBoxes)) {
+                String nextKey = key(move.next);
+                if (!solvable.contains(nextKey) || onPath.contains(nextKey)) {
+                    continue;
+                }
+                if (!walk(level, move.next, solvable, onPath, found, visitedNodes, limit, pathLimit,
+                        keepPlacedBoxes)) {
+                    completed = false;
+                    break;
+                }
+            }
+        } finally {
+            onPath.remove(currentKey);
+        }
+        return completed;
     }
 
     /** 收集所有目标点，升序排列。 */
@@ -163,6 +244,78 @@ public final class SolutionCounter {
         Arrays.sort(result);
         return result;
     }
+
+    /* ---------------- 口径二：互不相同的推箱方案 ---------------- */
+
+    /**
+     * 统计<b>互不相同的推箱方案</b>数量。
+     *
+     * <p>方案由“推哪个箱子、往哪个方向推”这一串动作决定；玩家为了站到推箱位置而绕的路
+     * 不计入差异。已经就位的箱子不再被推走，避免同一套方案被“推上去再推下来”重复计数。</p>
+     *
+     * @param level     关卡
+     * @param limit     方案数量上限，达到即提前返回
+     * @param pathLimit 搜索节点数上限
+     * @return 统计结果
+     */
+    public static Result countPlans(Level level, int limit, int pathLimit) {
+        int[] startBoxes = level.getBoxStarts();
+        if (!level.isPaired()) {
+            Arrays.sort(startBoxes);
+        }
+        State start = new State(canonical(level, level.getPlayerStart(), startBoxes),
+                startBoxes);
+
+        Set<String> plans = new HashSet<String>();
+        // seen：同一个局面只展开一次。玩家在同一片连通区域里的不同站位是等价的，
+        // 归一化之后天然合并，方案也就不会因为“从哪边绕过去”而重复。
+        Set<String> seen = new HashSet<String>();
+        int[] visitedNodes = new int[1];
+        boolean completed = walkPlans(level, start, seen, new StringBuilder(), plans,
+                visitedNodes, limit, pathLimit);
+        return new Result(Math.min(plans.size(), limit), completed, seen.size());
+    }
+
+    /**
+     * 深度优先枚举推箱方案。
+     *
+     * @param seen 已经展开过的局面
+     * @return 是否在限制内搜索完成
+     */
+    private static boolean walkPlans(Level level, State current, Set<String> seen,
+                                     StringBuilder plan, Set<String> plans,
+                                     int[] visitedNodes, int limit, int pathLimit) {
+        if (current.solved(level)) {
+            plans.add(plan.toString());
+            return plans.size() < limit;
+        }
+        if (plans.size() >= limit) {
+            return false;
+        }
+        if (++visitedNodes[0] > pathLimit) {
+            return false;
+        }
+        if (!seen.add(key(current))) {
+            // 这个局面之前已经展开过，同一批后续方案不必再数一遍
+            return true;
+        }
+
+        boolean completed = true;
+        int mark = plan.length();
+        for (Move move : successors(level, current, true)) {
+            plan.append(move.boxIndex).append(':').append(move.dirOrdinal).append(';');
+            if (!walkPlans(level, move.next, seen, plan, plans, visitedNodes, limit, pathLimit)) {
+                completed = false;
+                plan.setLength(mark);
+                break;
+            }
+            plan.setLength(mark);
+        }
+        plan.setLength(mark);
+        return completed;
+    }
+
+    /* ---------------- 推演 ---------------- */
 
     /**
      * 反向推演：列出所有“推一步之后变成 {@code current}”的局面。
@@ -210,13 +363,16 @@ public final class SolutionCounter {
     }
 
     /** 正向推演：从当前局面出发，所有可能的推箱结果。 */
-    private static List<State> successors(Level level, State current) {
+    private static List<Move> successors(Level level, State current, boolean keepPlacedBoxes) {
         int width = level.getWidth();
-        List<State> result = new ArrayList<State>();
+        List<Move> result = new ArrayList<Move>();
         boolean[] reachable = reachableCells(level, current.player, current.boxes);
 
         for (int i = 0; i < current.boxes.length; i++) {
             int box = current.boxes[i];
+            if (keepPlacedBoxes && level.isBoxPlaced(i, box)) {
+                continue;   // 推到目标点上的箱子就不要再推走了，否则只是把同一套走法来回折腾
+            }
             int boxX = box % width;
             int boxY = box / width;
             for (SokobanGame.Dir dir : SokobanGame.Dir.values()) {
@@ -240,49 +396,11 @@ public final class SolutionCounter {
                     Arrays.sort(boxes);
                 }
                 // 推完后玩家站在箱子原来的位置
-                result.add(new State(canonical(level, box, boxes), boxes));
+                result.add(new Move(new State(canonical(level, box, boxes), boxes),
+                        i, dir.ordinal()));
             }
         }
         return result;
-    }
-
-    /**
-     * 深度优先枚举“不重复局面的推箱路径”。
-     *
-     * @return 是否在限制内搜索完成
-     */
-    private static boolean walk(Level level, State current, Set<String> solvable,
-                                Set<String> onPath, int[] found, int[] visitedNodes,
-                                int limit, int pathLimit) {
-        if (current.solved(level)) {
-            found[0]++;
-            return true;
-        }
-        if (found[0] >= limit) {
-            return false;
-        }
-        if (++visitedNodes[0] > pathLimit) {
-            return false;
-        }
-
-        String currentKey = key(current);
-        onPath.add(currentKey);
-        boolean completed = true;
-        try {
-            for (State next : successors(level, current)) {
-                String nextKey = key(next);
-                if (!solvable.contains(nextKey) || onPath.contains(nextKey)) {
-                    continue;
-                }
-                if (!walk(level, next, solvable, onPath, found, visitedNodes, limit, pathLimit)) {
-                    completed = false;
-                    break;
-                }
-            }
-        } finally {
-            onPath.remove(currentKey);
-        }
-        return completed;
     }
 
     /**
@@ -352,9 +470,9 @@ public final class SolutionCounter {
         return seen;
     }
 
-    private static boolean contains(int[] sorted, int value) {
-        for (int item : sorted) {
-            if (item == value) {
+    private static boolean contains(int[] cells, int value) {
+        for (int cell : cells) {
+            if (cell == value) {
                 return true;
             }
         }

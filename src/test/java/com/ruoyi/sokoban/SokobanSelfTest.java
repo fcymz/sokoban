@@ -658,23 +658,25 @@ public final class SokobanSelfTest {
                 allExactPositive && exactCount >= 6,
                 "exact=" + exactCount + " allPositive=" + allExactPositive);
 
-        section("无尽模式：20 层之后走法不得多于 10 种，且不能是水关");
+        section("无尽模式：20 层之后箱子不少于 3 个，解法不多于 10 种，且不能是水关");
         Random strictRandom = new Random(24680L);
         for (int number = 21; number <= 26; number++) {
             EndlessGenerator.Generated g = generator.generate(number, strictRandom);
             Level lv = g.getLevel();
             boolean replayOk = replay(lv, g.getSolution());
-            SolutionCounter.Result routes = SolutionCounter.count(lv, 50, 300000, 600000);
+            SolutionCounter.Result plans = SolutionCounter.countPlans(lv, 50, 400000);
             List<SokobanGame.Dir> optimal = Solver.solve(lv, 400000);
-            boolean routesOk = routes.isExact() && routes.getCount() <= 10;
+            boolean boxesOk = lv.getBoxCount() >= 3;
+            boolean plansOk = plans.isExact() && plans.getCount() <= 10;
             boolean notTooEasy = optimal != null && optimal.size() >= 15;
             check(String.format(
-                            "无尽第 %2d 层 %2d×%-2d：可通关 / 走法 %s 种 / 最短解 %s 步",
-                            number, lv.getWidth(), lv.getHeight(),
-                            routes.isExact() ? String.valueOf(routes.getCount()) : "?",
+                            "无尽第 %2d 层 %2d×%-2d：可通关 / 箱子 %d 个 / 解法 %s 种 / 最短解 %s 步",
+                            number, lv.getWidth(), lv.getHeight(), lv.getBoxCount(),
+                            plans.isExact() ? String.valueOf(plans.getCount()) : "?",
                             optimal == null ? "?" : String.valueOf(optimal.size())),
-                    replayOk && routesOk && notTooEasy,
-                    "replay=" + replayOk + " routesOk=" + routesOk + " notTooEasy=" + notTooEasy);
+                    replayOk && boxesOk && plansOk && notTooEasy,
+                    "replay=" + replayOk + " boxesOk=" + boxesOk
+                            + " plansOk=" + plansOk + " notTooEasy=" + notTooEasy);
         }
 
         section("无尽模式：后 5 层比前 5 层更紧（墙体更多）");
