@@ -47,48 +47,35 @@ public final class EndlessGenerator {
     private static final int MAX_MEASUREMENTS = 8;
     /** 度量用的 BFS 状态上限，超过就认为这关足够复杂。 */
     private static final int MEASURE_STATE_LIMIT = 150000;
-    /** 通关解法数量上限：第 {@value #STRICT_FROM_LEVEL} 层之后必须不超过这个数。 */
-    private static final int MAX_SOLUTIONS = 10;
-    /** 从第 {@value #STRICT_FROM_LEVEL} 层之后开始强制“解法不多于 {@value #MAX_SOLUTIONS} 种”。 */
+    /** 第 {@value #STRICT_FROM_LEVEL} 层之后的箱子数下限。 */
+    private static final int MIN_BOXES_STRICT = 3;
+    /** 单层最多箱子数。 */
+    private static final int MAX_BOXES = 3;
+    /** 从第 {@value #STRICT_FROM_LEVEL} 层之后进入“高难度随机迷宫”模式。 */
     private static final int STRICT_FROM_LEVEL = 20;
-    /** 严格模式下要求最短解不少于多少步，避免生成两步通关的水关。 */
-    private static final int STRICT_MIN_MOVES = 15;
-    /** 解法统计的搜索节点上限。 */
-    private static final int SOLUTION_PATH_LIMIT = 50000;
-    /** 严格模式下生成一层的时间预算（纳秒）。 */
-    private static final long STRICT_BUDGET_NANOS = 6000000000L;
-    /** 严格模式下最多尝试生成多少次（失败的尝试很便宜，可以多试）。 */
-    private static final int MAX_STRICT_ATTEMPTS = 4000;
+    /** 打分时“最短解步数”的上限，避免个别很难度量的候选把整个生成拖住。 */
+    private static final int MAX_MEASURE_MOVES = 400;
+    /** 认为“够难了”的最短解步数，达到就可以停止继续找。 */
+    private static final int STRICT_TARGET_MOVES = 45;
+    /** 打分最多看几个候选（每个候选都要跑一次求解器，很贵）。 */
+    private static final int MAX_STRICT_CANDIDATES = 6;
+    /** 高难度模式生成一层的时间预算（纳秒）。 */
+    private static final long STRICT_BUDGET_NANOS = 3000000000L;
+    /** 高难度模式最多尝试生成多少次。 */
+    private static final int MAX_STRICT_ATTEMPTS = 900;
+    /** 高难度模式依次尝试的墙密度增量：先试紧迷宫，不行再放宽。 */
+    private static final double[] STRICT_WALL_STEPS = {0.06d, 0.0d, 0.0d, 0.12d, 0.0d, 0.16d};
     /** 内部墙占比：基础密度，以及 20 层之后额外增加的幅度与上限。 */
     private static final double WALL_RATIO_BASE = 0.16d;
     private static final double WALL_RATIO_EXTRA_PER_LEVEL = 0.02d;
     private static final double WALL_RATIO_MAX = 0.38d;
-    /** 单层最多箱子数。 */
-    private static final int MAX_BOXES = 3;
-    /**
-     * 严格模式（第 {@value #STRICT_FROM_LEVEL} 层之后）的箱子数：<b>固定</b>这个数。
-     *
-     * <p>箱子太少（比如 1 个）关卡会显得很空，玩起来没内容；但箱子一多走法数量又会暴涨，
-     * 所以严格模式换用 {@link #attemptCorridors} 的“强制走廊”结构来生成，
-     * 让走法数量与箱子数脱钩。</p>
-     */
-    private static final int MIN_BOXES_STRICT = 3;
 
-    /** 严格模式的箱子数；默认 {@value #MIN_BOXES_STRICT}，仅供自检与调参覆盖。 */
-    private int strictBoxCount = MIN_BOXES_STRICT;
-
-    /**
-     * 覆盖严格模式的箱子数。
-     *
-     * @param count 箱子数，小于 1 时按 1 处理
-     */
-    void setStrictBoxCount(int count) {
-        this.strictBoxCount = Math.max(1, count);
-    }
 
 
     /** 无尽模式下，箱子开局到它自己专属目标点的曼哈顿距离下限。 */
     private static final int MIN_BOX_TARGET_DISTANCE = 7;
+    /** 高难度模式下，箱子至少要被拉开这么多次，保证不是几步就能推完的水关。 */
+    private static final int STRICT_MIN_PULLS = 24;
 
     /** 拉箱序列中的一步。 */
     private static final class Step {
@@ -173,8 +160,10 @@ public final class EndlessGenerator {
 
         int targetPulls = targetPullsFor(number);
         int targetMoves = targetMovesFor(number);
-        int minPulls = Math.max(4, Math.min(8, targetPulls / 2));
         boolean strict = number > STRICT_FROM_LEVEL;
+        int minPulls = strict
+                ? STRICT_MIN_PULLS
+                : Math.max(4, Math.min(8, targetPulls / 2));
 
         if (strict) {
             return generateStrict(number, width, height, scale, targetPulls, minPulls, rnd);
@@ -183,70 +172,69 @@ public final class EndlessGenerator {
     }
 
     /**
-     * 第 {@value #STRICT_FROM_LEVEL} 层之后：既要<b>箱子（和目标点）不少于
-     * {@value #MIN_BOXES_STRICT} 个</b>，又要解法不多于 {@value #MAX_SOLUTIONS} 种，
-     * 还要保证最短解不少于 {@value #STRICT_MIN_MOVES} 步。
+     * 第 {@value #STRICT_FROM_LEVEL} 层之后：用<b>同一套随机迷宫生成器</b>造地图，
+     * 但固定要 {@value #MIN_BOXES_STRICT} 个箱子，并且按难度挑选候选。
      *
-     * <h3>为什么这里换了生成方式</h3>
-     * “箱子多”和“解法少”在迷宫里是直接冲突的。实测：同一种迷宫地图下，1 个箱子的关卡
-     * 只有 1 种解法，2 个箱子是 6~9 种，3 个箱子直接上千——因为每个箱子都能被推来推去，
-     * 几个箱子的动作还能任意交错，组合数量是爆炸的。也就是说在迷宫里想同时要
-     * “3 个箱子”和“解法 &lt;= 10 种”，只能生成出一堆水关。
+     * <h3>箱子数与难度怎么权衡</h3>
+     * 箱子多和“解法少”在随机迷宫里是直接冲突的：实测 1 个箱子通常只有 1 种解法，
+     * 2 个箱子 6~9 种，3 个箱子直接上千（每个箱子都能被推来推去，几个箱子的动作还能
+     * 任意交错）。要硬压住解法数量，只能固定成“每条走廊一个箱子只能单向推”这种结构，
+     * 但那样每层长得一模一样，玩起来就等于同一关。所以这里选择<b>保住随机性</b>：
      *
-     * <p>所以严格模式换成“单向走廊”结构（见 {@link #attemptCorridors}）：每条走廊里一个箱子，
-     * 目标点顶在走廊的一头，走廊上下都是墙，箱子只能沿着走廊朝目标点单向推进。
-     * 于是每个箱子到自己的目标点只有一条路，解法数量就退化成
-     * <b>几个箱子推进去的先后顺序</b>（3 个箱子最多 3! = 6 种），实测是 3 种，
-     * 稳稳压在 {@value #MAX_SOLUTIONS} 种以内。这样才真正做到“箱子管够、解法还少”。</p>
+     * <ul>
+     *   <li>地图仍然是随机迷宫，每层都不一样；</li>
+     *   <li>难度用“最短解步数”衡量——这是求解器真算出来的，箱子多、目标点远、场地绕，
+     *       最短解自然就长；</li>
+     *   <li>箱子数固定 {@value #MIN_BOXES_STRICT} 个，并且用
+     *       {@value #STRICT_MIN_PULLS} 次以上的拉箱把箱子拉得足够远，保证不是水关。</li>
+     * </ul>
      */
     private Generated generateStrict(int number, int width, int height, int scale,
                                      int targetPulls, int minPulls, Random rnd) {
         long deadline = System.nanoTime() + STRICT_BUDGET_NANOS;
-        Generated easiestBest = null;
-        int easiestMoves = -1;
-        Generated anyBest = null;
+        Generated best = null;
+        int bestMoves = -1;
         int measured = 0;
 
-        for (int attempt = 0; attempt < MAX_STRICT_ATTEMPTS; attempt++) {
-            if (System.nanoTime() > deadline) {
+        for (int attempt = 0; attempt < MAX_STRICT_ATTEMPTS
+                && measured < MAX_STRICT_CANDIDATES; attempt++) {
+            if (System.nanoTime() > deadline && measured > 0) {
                 break;
             }
-            Generated candidate = attemptCorridors(number, width, height, rnd);
+            // 和 20 层以前是同一套随机迷宫生成器，所以 21 层往后的地图同样是随机迷宫，
+            // 不是固定结构；区别只在于这里固定要 MIN_BOXES_STRICT 个箱子，并按难度挑候选。
+            Generated candidate = attempt(number, width, height, scale,
+                    targetPulls, minPulls, 0.0d, rnd);
             if (candidate == null) {
                 continue;
             }
-            measured++;
-            SolutionCounter.Result plans = SolutionCounter.countPlans(candidate.getLevel(),
-                    MAX_SOLUTIONS, SOLUTION_PATH_LIMIT);
-            if (anyBest == null) {
-                anyBest = candidate;
-            }
-            if (plans.getCount() > MAX_SOLUTIONS) {
+            Level level = candidate.getLevel();
+            if (level.getBoxCount() < MIN_BOXES_STRICT) {
                 continue;
             }
+            measured++;
 
-            // 走法达标了，但还要够“有得想”：最短解不能太短
-            List<SokobanGame.Dir> optimal =
-                    Solver.solve(candidate.getLevel(), MEASURE_STATE_LIMIT);
-            int moves = optimal == null ? Integer.MAX_VALUE : optimal.size();
-            if (moves >= STRICT_MIN_MOVES) {
-                return candidate;
+            // 难度就用“最短解步数”衡量：这是求解器真算出来的，可靠且便宜。
+            // 箱子多、目标点远、场地绕，最短解自然就长。
+            List<SokobanGame.Dir> optimal = Solver.solve(level, MEASURE_STATE_LIMIT);
+            int moves = optimal != null ? Math.min(optimal.size(), MAX_MEASURE_MOVES)
+                    : MAX_MEASURE_MOVES;
+            if (moves > bestMoves) {
+                bestMoves = moves;
+                best = candidate;
             }
-            if (moves > easiestMoves) {
-                easiestMoves = moves;
-                easiestBest = candidate;
+            // 已经足够长就直接收工，把生成时间留给玩家
+            if (moves >= STRICT_TARGET_MOVES) {
+                break;
             }
         }
 
-        if (easiestBest != null) {
-            return easiestBest;
+        if (best != null) {
+            return best;
         }
-        if (anyBest != null) {
-            return anyBest;
-        }
+        // 随机迷宫一个候选都没造出来（很罕见），退回必定可解的兜底关卡
         return fallback(width, height, true);
     }
-
     /** 20 层及以前：用最短解衡量难度，挑最难的候选。 */
     private Generated generateRelaxed(int number, int width, int height, int scale,
                                       int targetPulls, int minPulls, int targetMoves,
@@ -259,7 +247,7 @@ public final class EndlessGenerator {
 
         for (int attempt = 0; attempt < MAX_ATTEMPTS && measured < MAX_MEASUREMENTS; attempt++) {
             Generated candidate = attempt(number, width, height, scale,
-                    targetPulls, minPulls, rnd);
+                    targetPulls, minPulls, 0.0d, rnd);
             if (candidate == null) {
                 continue;
             }
@@ -291,7 +279,22 @@ public final class EndlessGenerator {
         return fallback(width, height, false);
     }
 
-    /** 目标拉箱次数：层数越高，把箱子拉得越乱。 */
+    /**
+     * 高难度模式第 {@code attempt} 次尝试使用的墙密度增量。
+     *
+     * <p>从紧到松轮着试：通道越窄，箱子越难掉头，解法数量越少、难度越高；
+     * 万一太紧造不出关卡，后面几档会自动放宽。</p>
+     *
+     * @param attempt 尝试序号
+     * @return 附加到基础墙密度上的增量
+     */
+    static double densityFor(int attempt) {
+        return STRICT_WALL_STEPS[attempt % STRICT_WALL_STEPS.length];
+    }
+
+    /**
+     * 目标拉箱次数：层数越高，把箱子拉得越乱。
+     */
     private int targetPullsFor(int endlessNumber) {
         return Math.min(40, 10 + endlessNumber);
     }
@@ -365,7 +368,8 @@ public final class EndlessGenerator {
     /* ---------------- 单次尝试 ---------------- */
 
     private Generated attempt(int number, int width, int height, int scale,
-                              int targetPulls, int minPulls, Random random) {
+                              int targetPulls, int minPulls, double extraDensity,
+                              Random random) {
         boolean[][] wall = new boolean[height][width];
         for (int x = 0; x < width; x++) {
             wall[0][x] = true;
@@ -380,9 +384,17 @@ public final class EndlessGenerator {
         // 而不是在一片空地上撒几根孤立柱子。这既能避免空旷场地，也能收紧箱子的活动余地。
         int interior = (width - 2) * (height - 2);
         int boxCount = boxCountFor(scale, interior, MAX_BOXES);
+        boolean highDifficulty = number > STRICT_FROM_LEVEL;
+        if (highDifficulty) {
+            boxCount = MIN_BOXES_STRICT;
+        }
         {
             int minOpen = Math.max(boxCount * 5 + 6, (int) Math.round(interior * 0.42));
-            int wallTarget = (int) Math.round(interior * wallRatioFor(number));
+            // 高难度模式下墙密度从紧到松轮着试：通道越窄，箱子越难掉头，
+            // 解法数量越少、难度越高；实在造不出来再逐步放宽
+            double ratio = Math.min(WALL_RATIO_MAX + 0.2d,
+                    wallRatioFor(number) + extraDensity);
+            int wallTarget = (int) Math.round(interior * ratio);
             carveWalls(wall, width, height, wallTarget, minOpen, random);
         }
 
@@ -395,6 +407,10 @@ public final class EndlessGenerator {
             }
         }
         boxCount = boxCountFor(scale, open.size(), MAX_BOXES);
+        if (highDifficulty) {
+            // 高难度模式固定箱子数：不能再靠“只放一个箱子”来压低解法数量
+            boxCount = MIN_BOXES_STRICT;
+        }
         if (open.size() < boxCount + 3) {
             return null;
         }
@@ -630,13 +646,13 @@ public final class EndlessGenerator {
      * <h3>为什么这样就不会有很多种解法</h3>
      * 每个箱子要到达自己的目标点，路线只有一条（沿着走廊朝目标点走
      * {@value #MIN_BOX_TARGET_DISTANCE} 格），玩家只是需要绕到箱子外侧而已。
-     * 于是解法数量就等于<b>几个箱子推进去的先后顺序</b>：3 个箱子最多 3! = 6 种，实测 3 种，
-     * 稳稳压在 {@value #MAX_SOLUTIONS} 种以内。这样就能同时满足“箱子不少于
-     * {@value #MIN_BOXES_STRICT} 个”和“解法不多于 {@value #MAX_SOLUTIONS} 种”，
-     * 而不是靠把箱子减到一个来回避问题。
+     * 于是解法数量就等于<b>几个箱子推进去的先后顺序</b>：3 个箱子最多 3! = 6 种，实测 3 种。
+     *
+     * <p>注意：这个结构只作为<b>兜底</b>使用——随机迷宫偶尔一个候选都造不出来时才会走到这里，
+     * 平时 21 层往后都是随机迷宫。它的价值是“必定可解”而且箱子数达标。</p>
      */
     private Generated attemptCorridors(int number, int width, int height, Random random) {
-        int boxes = strictBoxCount;
+        int boxes = MIN_BOXES_STRICT;
         int distance = MIN_BOX_TARGET_DISTANCE;
         // 走廊里“目标点这一头”随机挑左右各一半，地图因此看起来不一样；
         // 无论朝哪边，箱子都只能沿着走廊朝目标点单向推进。
@@ -1428,14 +1444,14 @@ public final class EndlessGenerator {
      * 严格模式的兜底关卡：用 {@link #attemptCorridors} 的“强制走廊”结构，配合一组固定的
      * 布局参数反复尝试，直到造出一个满足“箱子 >= {@value #MIN_BOXES_STRICT} 个”的关卡。
      *
-     * <p>{@code attemptCorridors} 造出来的关卡里，每个箱子都只能沿着自己那条走廊朝目标点
-     * 单向推进，所以走法数量天然被压在 {@value #MAX_SOLUTIONS} 种以内，不需要再筛。</p>
+     * <p>这个兜底关卡里每个箱子都只占一条竖井，只能上下移动，玩家靠两侧的竖井绕路，
+     * 所以必定可解、箱子数也达标；它只是“随机迷宫一个候选都没造出来”时的保险，
+     * 正常游玩几乎不会遇到。</p>
      *
      * @param width  宽度
      * @param height 高度
      * @return 关卡与一条通关步骤
      */
-
     private Generated fallbackStrict(int width, int height) {
         int boxes = MIN_BOXES_STRICT;
         int distance = MIN_BOX_TARGET_DISTANCE;

@@ -29,6 +29,7 @@ import java.util.Set;
  */
 public final class SolutionCounter {
 
+
     /** 统计结果。 */
     public static final class Result {
 
@@ -267,52 +268,50 @@ public final class SolutionCounter {
                 startBoxes);
 
         Set<String> plans = new HashSet<String>();
+        // 广度优先逐层推进：同一层里的方案推箱次数一样多。
+        // 这样既有“最短方案”的意义，又不会像深搜那样把递归栈压爆。
+        Deque<PlanNode> queue = new ArrayDeque<PlanNode>();
+        queue.add(new PlanNode(start, ""));
         // seen：同一个局面只展开一次。玩家在同一片连通区域里的不同站位是等价的，
         // 归一化之后天然合并，方案也就不会因为“从哪边绕过去”而重复。
         Set<String> seen = new HashSet<String>();
-        int[] visitedNodes = new int[1];
-        boolean completed = walkPlans(level, start, seen, new StringBuilder(), plans,
-                visitedNodes, limit, pathLimit);
+        int nodes = 0;
+        boolean completed = true;
+
+        while (!queue.isEmpty()) {
+            PlanNode node = queue.poll();
+            if (node.state.solved(level)) {
+                plans.add(node.plan);
+                if (plans.size() >= limit) {
+                    completed = false;
+                    break;
+                }
+                continue;
+            }
+            if (++nodes > pathLimit) {
+                completed = false;
+                break;
+            }
+            if (!seen.add(key(node.state))) {
+                continue;
+            }
+            for (Move move : successors(level, node.state, true)) {
+                queue.add(new PlanNode(move.next,
+                        node.plan + move.boxIndex + ':' + move.dirOrdinal + ';'));
+            }
+        }
         return new Result(Math.min(plans.size(), limit), completed, seen.size());
     }
 
-    /**
-     * 深度优先枚举推箱方案。
-     *
-     * @param seen 已经展开过的局面
-     * @return 是否在限制内搜索完成
-     */
-    private static boolean walkPlans(Level level, State current, Set<String> seen,
-                                     StringBuilder plan, Set<String> plans,
-                                     int[] visitedNodes, int limit, int pathLimit) {
-        if (current.solved(level)) {
-            plans.add(plan.toString());
-            return plans.size() < limit;
-        }
-        if (plans.size() >= limit) {
-            return false;
-        }
-        if (++visitedNodes[0] > pathLimit) {
-            return false;
-        }
-        if (!seen.add(key(current))) {
-            // 这个局面之前已经展开过，同一批后续方案不必再数一遍
-            return true;
-        }
+    /** 广度优先搜索里的一个“局面 + 到达它的推箱方案”。 */
+    private static final class PlanNode {
+        private final State state;
+        private final String plan;
 
-        boolean completed = true;
-        int mark = plan.length();
-        for (Move move : successors(level, current, true)) {
-            plan.append(move.boxIndex).append(':').append(move.dirOrdinal).append(';');
-            if (!walkPlans(level, move.next, seen, plan, plans, visitedNodes, limit, pathLimit)) {
-                completed = false;
-                plan.setLength(mark);
-                break;
-            }
-            plan.setLength(mark);
+        PlanNode(State state, String plan) {
+            this.state = state;
+            this.plan = plan;
         }
-        plan.setLength(mark);
-        return completed;
     }
 
     /* ---------------- 推演 ---------------- */

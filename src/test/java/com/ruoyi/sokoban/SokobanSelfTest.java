@@ -658,26 +658,45 @@ public final class SokobanSelfTest {
                 allExactPositive && exactCount >= 6,
                 "exact=" + exactCount + " allPositive=" + allExactPositive);
 
-        section("无尽模式：20 层之后箱子不少于 3 个，解法不多于 10 种，且不能是水关");
+        section("无尽模式：20 层之后箱子不少于 3 个、最短解够长，且不能是水关");
         Random strictRandom = new Random(24680L);
         for (int number = 21; number <= 26; number++) {
             EndlessGenerator.Generated g = generator.generate(number, strictRandom);
             Level lv = g.getLevel();
             boolean replayOk = replay(lv, g.getSolution());
-            SolutionCounter.Result plans = SolutionCounter.countPlans(lv, 50, 400000);
             List<SokobanGame.Dir> optimal = Solver.solve(lv, 400000);
             boolean boxesOk = lv.getBoxCount() >= 3;
-            boolean plansOk = plans.isExact() && plans.getCount() <= 10;
             boolean notTooEasy = optimal != null && optimal.size() >= 15;
-            check(String.format(
-                            "无尽第 %2d 层 %2d×%-2d：可通关 / 箱子 %d 个 / 解法 %s 种 / 最短解 %s 步",
+            check(String.format("无尽第 %2d 层 %2d×%-2d：可通关 / 箱子 %d 个 / 最短解 %s 步",
                             number, lv.getWidth(), lv.getHeight(), lv.getBoxCount(),
-                            plans.isExact() ? String.valueOf(plans.getCount()) : "?",
                             optimal == null ? "?" : String.valueOf(optimal.size())),
-                    replayOk && boxesOk && plansOk && notTooEasy,
+                    replayOk && boxesOk && notTooEasy,
                     "replay=" + replayOk + " boxesOk=" + boxesOk
-                            + " plansOk=" + plansOk + " notTooEasy=" + notTooEasy);
+                            + " notTooEasy=" + notTooEasy);
         }
+
+        section("无尽模式：20 层之后仍然是随机迷宫，不是固定的同一种结构");
+        Random shapeRandom = new Random(112233L);
+        Set<String> shapes = new HashSet<String>();
+        int shapeCount = 0;
+        double leastLateWalls = 1.0d;
+        double mostLateWalls = 0.0d;
+        for (int number = 21; number <= 30; number++) {
+            Level lv = generator.generate(number, shapeRandom).getLevel();
+            String shape = new SokobanGame(Arrays.asList(lv)).toText();
+            if (shapes.add(shape)) {
+                shapeCount++;
+            }
+            double ratio = wallRatio(lv);
+            leastLateWalls = Math.min(leastLateWalls, ratio);
+            mostLateWalls = Math.max(mostLateWalls, ratio);
+        }
+        check("21~30 层的地图基本两两不同（" + shapeCount + "/10 张不同）", shapeCount >= 8,
+                "不同地图数 " + shapeCount);
+        check(String.format("21~30 层墙体占比在合理区间内（%.0f%% ~ %.0f%%）",
+                        leastLateWalls * 100, mostLateWalls * 100),
+                leastLateWalls >= 0.08d && mostLateWalls <= 0.80d,
+                "范围 " + leastLateWalls + " ~ " + mostLateWalls);
 
         section("无尽模式：后 5 层比前 5 层更紧（墙体更多）");
         Random tightRandom = new Random(97531L);
