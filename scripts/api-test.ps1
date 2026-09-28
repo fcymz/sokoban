@@ -126,6 +126,10 @@ $dv = ((Invoke-Api 'DELETE' '/api/saves/3' $null) | ConvertFrom-Json) | Where-Ob
 Check '删档后槽位 3 为空' ($dv.exists -eq $false) "exists=$($dv.exists)"
 Check '未知会话返回 404' ((Get-Code 'GET' '/api/game/sessions/not-a-session' $null) -eq '404')
 
+Write-Output '== 已下线的成绩榜接口 =='
+Check 'GET /api/scores 返回 404' ((Get-Code 'GET' '/api/scores' $null) -eq '404')
+Check '随便一个不存在的路径也是 404' ((Get-Code 'GET' '/api/nope' $null) -eq '404')
+
 Write-Output ''
 Write-Output "结果：失败 $script:failed 项"
 exit $script:failed

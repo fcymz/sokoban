@@ -436,34 +436,37 @@ public final class SokobanSelfTest {
         check("随机种子也是合法的规范编码",
                 SeedCode.parse(SeedCode.format(SeedCode.randomSeed())) != null);
 
-        section("存档：成绩与解锁进度");
+        section("存档：解锁进度");
         File saveFile = new File(outDir, "test-save.properties");
         saveFile.delete();
         SaveData data = new SaveData(saveFile);
-        check("初始没有成绩", data.getBest(0) == -1);
         check("初始进度为第 1 关", data.getMaxUnlockedLevel() == 0);
-        check("首次提交成绩返回 true", data.submit(0, 12));
-        check("更差的成绩不会覆盖", !data.submit(0, 20));
-        check("更好的成绩会覆盖", data.submit(0, 7));
-        check("可以读回成绩", data.getBest(0) == 7, "best=" + data.getBest(0));
         check("解锁进度只增不减", data.unlockLevel(5) && data.getMaxUnlockedLevel() == 5);
         check("更小的解锁值被忽略", !data.unlockLevel(2) && data.getMaxUnlockedLevel() == 5);
 
         SaveData reloaded = new SaveData(saveFile);
-        check("重新读盘后成绩仍在", reloaded.getBest(0) == 7, "best=" + reloaded.getBest(0));
         check("重新读盘后进度仍在", reloaded.getMaxUnlockedLevel() == 5,
                 "unlocked=" + reloaded.getMaxUnlockedLevel());
-        reloaded.clearScores();
-        check("清除成绩后没有记录了", reloaded.hasNoScores());
-        check("清除成绩不会重置关卡进度", reloaded.getMaxUnlockedLevel() == 5);
         reloaded.resetAll();
         check("重置后进度归零", reloaded.getMaxUnlockedLevel() == 0);
 
         SaveData memoryOnly = new SaveData(null);
-        check("拿不到存档文件时仍可记录", memoryOnly.submit(0, 9)
-                && memoryOnly.getBest(0) == 9);
         check("拿不到存档文件时仍可记录进度", memoryOnly.unlockLevel(3)
                 && memoryOnly.getMaxUnlockedLevel() == 3);
+
+        // 旧版本的存档里有 best.* 成绩，读盘时要忽略，写盘时不再写回
+        File legacyFile = new File(outDir, "test-save-legacy.properties");
+        legacyFile.delete();
+        new SaveData(legacyFile).unlockLevel(4);
+        java.io.FileWriter appender = new java.io.FileWriter(legacyFile, true);
+        appender.write("best.0=7\nbest.3=21\n");
+        appender.close();
+        SaveData legacyData = new SaveData(legacyFile);
+        check("旧存档里的 best.* 不影响进度读取", legacyData.getMaxUnlockedLevel() == 4,
+                "unlocked=" + legacyData.getMaxUnlockedLevel());
+        legacyData.unlockLevel(6);
+        String legacyText = java.nio.file.Files.readString(legacyFile.toPath());
+        check("旧存档里的 best.* 不再被写回", !legacyText.contains("best."), "text=" + legacyText);
 
         section("无尽模式：地图每 5 层横竖各扩 1 格");
         EndlessGenerator generator = new EndlessGenerator();

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import * as api from './api/client'
-import type { Direction, LevelInfo, SaveSlot, ScoreBoard } from './api/types'
+import type { Direction, LevelInfo, SaveSlot } from './api/types'
 import GameBoard from './components/GameBoard.vue'
 import SaveSlots from './components/SaveSlots.vue'
 import { useGame } from './composables/useGame'
@@ -18,7 +18,6 @@ const game = useGame()
 const screen = ref<Screen>('menu')
 const slots = ref<SaveSlot[]>([])
 const levels = ref<LevelInfo[]>([])
-const scores = ref<ScoreBoard | null>(null)
 const seedInput = ref('')
 const notice = ref('')
 /** 从存档页返回时该回到哪个界面 */
@@ -34,7 +33,6 @@ onMounted(async () => {
   try {
     levels.value = await api.listLevels()
     slots.value = await api.listSaves()
-    scores.value = await api.listScores()
   } catch (e) {
     notice.value = e instanceof Error ? e.message : String(e)
   }
@@ -116,28 +114,21 @@ async function refreshSlots() {
   }
 }
 
-/** 重新拉一次关卡列表与成绩榜（通关后成绩会变）。 */
-async function refreshScores() {
+/** 重新拉一次关卡列表（通关后解锁进度会变）。 */
+async function refreshLevels() {
   try {
     levels.value = await api.listLevels()
-    scores.value = await api.listScores()
   } catch (e) {
     notice.value = e instanceof Error ? e.message : String(e)
   }
 }
 
-/** 当前这关是否刚刷新了纪录：凭“通关步数 == 后端记下的最佳步数”判断。 */
-const isNewRecord = computed(() => {
-  const s = game.state.value
-  return Boolean(s && s.won && s.bestSteps >= 0 && s.steps === s.bestSteps)
-})
-
-// 一旦通关，后端会把成绩写进存档文件，这里同步刷新成绩榜与关卡列表
+// 一旦通关，后端会推进解锁进度，这里同步刷新关卡列表
 watch(
   () => game.state.value?.won,
   (won, wasWon) => {
     if (won && !wasWon) {
-      void refreshScores()
+      void refreshLevels()
     }
   },
 )
@@ -296,24 +287,8 @@ function toggleSeed() {
         <ul>
           <li v-for="item in levels" :key="item.index">
             {{ item.title }} · {{ item.shortProgress }}
-            <span v-if="item.bestSteps >= 0" class="best">最佳 {{ item.bestSteps }} 步</span>
           </li>
         </ul>
-      </details>
-
-      <details v-if="scores && scores.entries.length" class="levels scoreboard">
-        <summary>成绩榜（{{ scores.entries.length }}/{{ scores.total }} 关有纪录）</summary>
-        <table>
-          <thead>
-            <tr><th>关卡</th><th>最佳步数</th></tr>
-          </thead>
-          <tbody>
-            <tr v-for="entry in scores.entries" :key="entry.levelIndex">
-              <td>{{ entry.title }}</td>
-              <td class="best">{{ entry.bestSteps }} 步</td>
-            </tr>
-          </tbody>
-        </table>
       </details>
     </section>
 
@@ -356,12 +331,7 @@ function toggleSeed() {
       </div>
 
       <p v-if="game.state.value.won" class="banner ok">
-        通关！用了 {{ game.state.value.steps }} 步。
-        <template v-if="isNewRecord">🎉 刷新了本关纪录！</template>
-        <template v-else-if="game.state.value.bestSteps >= 0">
-          本关最佳 {{ game.state.value.bestSteps }} 步。
-        </template>
-        按「下一关」继续。
+        通关！用了 {{ game.state.value.steps }} 步，按「下一关」继续。
       </p>
       <p v-else-if="game.state.value.deadlocked" class="banner bad">
         已经不可能通关了：按 U 撤销，或按 R 重来本关

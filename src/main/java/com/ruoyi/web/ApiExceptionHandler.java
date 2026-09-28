@@ -2,8 +2,10 @@ package com.ruoyi.web;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -54,6 +56,31 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> onBadRequest(IllegalArgumentException e) {
         return build(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    /**
+     * 路径不存在。
+     *
+     * <p>注意必须显式接住：否则会被下面的兜底分支当成未知异常，把正常的 404 变成 500。</p>
+     *
+     * @param e 异常
+     * @return 404 + 说明
+     */
+    @ExceptionHandler(NoResourceFoundException.class)
+    public ResponseEntity<Map<String, Object>> onNotFound(NoResourceFoundException e) {
+        return build(HttpStatus.NOT_FOUND, "接口不存在：" + e.getResourcePath());
+    }
+
+    /**
+     * 请求方法不对（例如对该用 POST 的接口发了 GET）。
+     *
+     * @param e 异常
+     * @return 405 + 说明
+     */
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<Map<String, Object>> onMethodNotAllowed(
+            HttpRequestMethodNotSupportedException e) {
+        return build(HttpStatus.METHOD_NOT_ALLOWED, e.getMessage());
     }
 
     /**

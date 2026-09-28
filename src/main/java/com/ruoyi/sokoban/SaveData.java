@@ -7,20 +7,22 @@ import java.io.FileInputStream;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.util.HashMap;
-import java.util.Map;
 import java.util.Properties;
-import java.util.TreeSet;
 
 /**
- * 存档：每关最佳步数 + 已解锁到的关卡进度。
+ * 存档：只记录关卡解锁进度。
  *
  * <p>保存在用户目录下的 {@code .sokoban-save.properties}。所有读写异常都会被静默吞掉：
- * 即使目录只读、沙箱受限或磁盘写入失败，游戏也只是“记不住成绩、记不住进度”，
+ * 即使目录只读、沙箱受限或磁盘写入失败，游戏也只是“记不住进度”，
  * 不会报错、不会弹窗、也不会刷日志。</p>
  *
- * <p>标注成 Spring 组件是为了全局只有一份内存状态：写完成绩之后，
- * 成绩榜接口立刻就能读到，不必每次重新读文件。</p>
+ * <h3>为什么不记成绩</h3>
+ * <p>这里曾经记录“每关最佳步数”，但这个指标本身就站不住脚：无尽关卡是按种子随机生成的，
+ * 同一个「无尽第 21 层」在不同种子下是两张完全不同的地图，拿它们的步数互相比较没有意义。
+ * 现在只保留解锁进度。</p>
+ *
+ * <p>旧存档文件里的 {@code best.*} 键会被<b>自动忽略</b>，既不会报错，
+ * 也不会在下次保存时被写回（等于顺手清理掉）。</p>
  */
 @Component
 public final class SaveData {
@@ -28,10 +30,10 @@ public final class SaveData {
     /** 默认存档文件名。 */
     public static final String DEFAULT_FILE_NAME = ".sokoban-save.properties";
 
-    private static final String KEY_BEST_PREFIX = "best.";
-    private static final String KEY_UNLOCKED = "unlocked";
+    /** 旧版本用来记成绩的键前缀；现在只用于“读到就跳过”。 */
+    private static final String LEGACY_KEY_BEST_PREFIX = "best.";
 
-    private final Map<Integer, Integer> best = new HashMap<Integer, Integer>();
+    private static final String KEY_UNLOCKED = "unlocked";
 
     /** 已解锁的最高关卡下标；0 表示只有第 1 关可进。 */
     private int maxUnlockedLevel;
@@ -68,58 +70,6 @@ public final class SaveData {
         }
     }
 
-    /* ---------------- 最佳步数 ---------------- */
-
-    /**
-     * 读取某关的最佳步数。
-     *
-     * @param levelIndex 关卡下标
-     * @return 最佳步数；没有记录时返回 -1
-     */
-    public int getBest(int levelIndex) {
-        Integer value = best.get(Integer.valueOf(levelIndex));
-        return value == null ? -1 : value.intValue();
-    }
-
-    /** @return 是否一条成绩记录都没有。 */
-    public boolean hasNoScores() {
-        return best.isEmpty();
-    }
-
-    /**
-     * 有成绩记录的关卡下标，升序。
-     *
-     * <p>成绩榜接口用它列出“打过哪些关”，而不是把可能的关卡号全列一遍。</p>
-     *
-     * @return 关卡下标列表
-     */
-    public int[] scoreLevels() {
-        TreeSet<Integer> keys = new TreeSet<Integer>(best.keySet());
-        int[] result = new int[keys.size()];
-        int i = 0;
-        for (Integer key : keys) {
-            result[i++] = key.intValue();
-        }
-        return result;
-    }
-
-    /**
-     * 记录成绩，仅在优于已有记录时写入。
-     *
-     * @param levelIndex 关卡下标
-     * @param steps      本次步数
-     * @return 刷新了纪录（或首次记录）返回 {@code true}
-     */
-    public boolean submit(int levelIndex, int steps) {
-        int current = getBest(levelIndex);
-        if (current >= 0 && steps >= current) {
-            return false;
-        }
-        best.put(Integer.valueOf(levelIndex), Integer.valueOf(steps));
-        save();
-        return true;
-    }
-
     /* ---------------- 关卡解锁进度 ---------------- */
 
     /**
@@ -146,17 +96,8 @@ public final class SaveData {
         return true;
     }
 
-    /* ---------------- 清空 ---------------- */
-
-    /** 只清空成绩记录，保留关卡进度。 */
-    public void clearScores() {
-        best.clear();
-        save();
-    }
-
-    /** 清空成绩并重置关卡进度。 */
+    /** 重置解锁进度：回到“只有第 1 关可进”，并删掉存档文件。 */
     public void resetAll() {
-        best.clear();
         maxUnlockedLevel = 0;
         if (file != null && file.isFile() && !file.delete()) {
             save();
@@ -174,17 +115,8 @@ public final class SaveData {
             for (String name : props.stringPropertyNames()) {
                 if (KEY_UNLOCKED.equals(name)) {
                     maxUnlockedLevel = Math.max(0, parseInt(props.getProperty(name), 0));
-                } else if (name.startsWith(KEY_BEST_PREFIX)) {
-                    try {
-                        int levelIndex = Integer.parseInt(name.substring(KEY_BEST_PREFIX.length()));
-                        int steps = Integer.parseInt(props.getProperty(name).trim());
-                        if (levelIndex >= 0 && steps >= 0) {
-                            best.put(Integer.valueOf(levelIndex), Integer.valueOf(steps));
-                        }
-                    } catch (NumberFormatException ignored) {
-                        // 跳过脏数据
-                    }
                 }
+                // 旧存档里的 best.* 一律忽略，保证旧文件也能正常读
             }
         } catch (Throwable ignored) {
             // 读不到就当没有存档
@@ -205,10 +137,6 @@ public final class SaveData {
             }
             Properties props = new Properties();
             props.setProperty(KEY_UNLOCKED, String.valueOf(maxUnlockedLevel));
-            for (Map.Entry<Integer, Integer> entry : best.entrySet()) {
-                props.setProperty(KEY_BEST_PREFIX + entry.getKey(),
-                        String.valueOf(entry.getValue()));
-            }
             out = new FileOutputStream(file);
             props.store(out, "sokoban save data");
             out.flush();

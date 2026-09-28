@@ -1,4 +1,4 @@
-import type { Direction, GameState, HintResult, LevelInfo, SaveSlot, ScoreBoard } from './types'
+import type { Direction, GameState, HintResult, LevelInfo, SaveSlot } from './types'
 
 /**
  * 后端 REST 接口的封装。
@@ -106,11 +106,6 @@ export function hint(sessionId: string): Promise<HintResult> {
 /** 内置关卡列表。 */
 export function listLevels(): Promise<LevelInfo[]> {
   return request<LevelInfo[]>('/levels')
-}
-
-/** 成绩榜（每关最佳步数）。 */
-export function listScores(): Promise<ScoreBoard> {
-  return request<ScoreBoard>('/scores')
 }
 
 /** 存档槽列表。 */

@@ -43,7 +43,7 @@ public class GameSessionService {
     private final SaveData saveData;
 
     /**
-     * @param saveData 成绩与进度存档（Spring 单例，保证写完成绩后成绩榜立刻读得到）
+     * @param saveData 关卡解锁进度存档（Spring 单例，保证通关后进度立刻生效）
      */
     public GameSessionService(SaveData saveData) {
         this.saveData = saveData;
@@ -336,7 +336,7 @@ public class GameSessionService {
     /* ---------------- 关卡信息 ---------------- */
 
     /**
-     * 列出内置关卡（无尽关卡按需求生成，不预先枚举），并带上每关的最佳步数。
+     * 列出内置关卡（无尽关卡按需求生成，不预先枚举）。
      *
      * @return 内置关卡列表
      */
@@ -344,7 +344,7 @@ public class GameSessionService {
         Campaign campaign = Campaign.createDefault();
         List<LevelInfoDto> result = new ArrayList<>();
         for (int i = 0; i < campaign.getBuiltInCount(); i++) {
-            result.add(GameMapper.toLevelInfo(campaign, i, saveData.getBest(i)));
+            result.add(GameMapper.toLevelInfo(campaign, i));
         }
         return result;
     }
@@ -352,15 +352,14 @@ public class GameSessionService {
     /* ---------------- 内部工具 ---------------- */
 
     /**
-     * 把会话映射成快照，顺带带上当前关卡的历史最佳步数。
+     * 把会话映射成快照。
      *
      * @param sessionId 会话编号
      * @param session   会话
      * @return 快照
      */
     private GameStateDto stateOf(String sessionId, Session session) {
-        int best = saveData.getBest(session.game().getLevelIndex());
-        return GameMapper.toState(sessionId, session.game(), session.campaign(), best);
+        return GameMapper.toState(sessionId, session.game(), session.campaign());
     }
 
     private Campaign buildCampaign(String seedCode) {
@@ -381,10 +380,8 @@ public class GameSessionService {
     }
 
     private void recordWin(Session session) {
-        SokobanGame game = session.game();
-        // 记录最好成绩，并把解锁进度写进存档文件
-        saveData.submit(game.getLevelIndex(), game.getSteps());
-        saveData.unlockLevel(game.getMaxUnlockedLevel());
+        // 无尽关卡的难度由种子决定，跨种子的步数没有可比性，因此只记录解锁进度
+        saveData.unlockLevel(session.game().getMaxUnlockedLevel());
     }
 
     private String titleOf(int levelIndex) {
