@@ -61,10 +61,14 @@ public final class EndlessGenerator {
     private static final int MAX_STRICT_CANDIDATES = 6;
     /** 高难度模式生成一层的时间预算（纳秒）。 */
     private static final long STRICT_BUDGET_NANOS = 3000000000L;
+
+    /** 同一张地形上最多换几次目标点／拉几次箱子，超过就重铺地图。 */
+    private static final int STRICT_PLACEMENTS_PER_TERRAIN = 40;
     /** 高难度模式最多尝试生成多少次。 */
     private static final int MAX_STRICT_ATTEMPTS = 900;
-    /** 高难度模式依次尝试的墙密度增量：先试紧迷宫，不行再放宽。 */
-    private static final double[] STRICT_WALL_STEPS = {0.06d, 0.0d, 0.0d, 0.12d, 0.0d, 0.16d};
+
+    /** 迷宫地图的环路比例（相对房间数）：越高岔路越多，箱子越好绕。 */
+    private static final double MAZE_LOOP_RATIO = 0.20d;
     /** 内部墙占比：基础密度，以及 20 层之后额外增加的幅度与上限。 */
     private static final double WALL_RATIO_BASE = 0.16d;
     private static final double WALL_RATIO_EXTRA_PER_LEVEL = 0.02d;
@@ -77,16 +81,19 @@ public final class EndlessGenerator {
     /** 高难度模式下，箱子至少要被拉开这么多次，保证不是几步就能推完的水关。 */
     private static final int STRICT_MIN_PULLS = 24;
 
-    /** 拉箱序列中的一步。 */
+    /** 反向拉箱序列中的一步拉箱。 */
     private static final class Step {
-        /** 方向。 */
-        private final SokobanGame.Dir dir;
-        /** {@code true} 表示拉箱，{@code false} 表示走动。 */
-        private final boolean push;
+        /** 箱子编号（从 1 开始，对应 {@code boxId}）。 */
+        private final int boxId;
+        /** 玩家拉箱时站的位置（一维下标）。 */
+        private final int stand;
+        /** 箱子被拉到的位置（一维下标）。 */
+        private final int to;
 
-        Step(SokobanGame.Dir dir, boolean push) {
-            this.dir = dir;
-            this.push = push;
+        Step(int boxId, int stand, int to) {
+            this.boxId = boxId;
+            this.stand = stand;
+            this.to = to;
         }
     }
 
@@ -196,15 +203,28 @@ public final class EndlessGenerator {
         int bestMoves = -1;
         int measured = 0;
 
+        boolean[][] terrain = null;
+        int placements = 0;
         for (int attempt = 0; attempt < MAX_STRICT_ATTEMPTS
                 && measured < MAX_STRICT_CANDIDATES; attempt++) {
             if (System.nanoTime() > deadline && measured > 0) {
                 break;
             }
+            // 铺地图很便宜、摆箱子（反向拉箱）很贵，而“把 3 个箱子都拉到离目标点足够远”
+            // 是个很挑地形的活儿。所以这里铺一次地形，就在同一张地形上反复换目标点、
+            // 反复拉箱，一直到拉出合格的局，或者这张地形被判死刑才重铺。
+            if (terrain == null || placements >= STRICT_PLACEMENTS_PER_TERRAIN) {
+                terrain = carveTerrain(number, width, height, scale, 0.0d, rnd);
+                placements = 0;
+                if (terrain == null) {
+                    continue;
+                }
+            }
+            placements++;
             // 和 20 层以前是同一套随机迷宫生成器，所以 21 层往后的地图同样是随机迷宫，
             // 不是固定结构；区别只在于这里固定要 MIN_BOXES_STRICT 个箱子，并按难度挑候选。
-            Generated candidate = attempt(number, width, height, scale,
-                    targetPulls, minPulls, 0.0d, rnd);
+            Generated candidate = attemptOnTerrain(number, width, height, scale,
+                    targetPulls, minPulls, terrain, rnd);
             if (candidate == null) {
                 continue;
             }
@@ -277,19 +297,6 @@ public final class EndlessGenerator {
             return best;
         }
         return fallback(width, height, false);
-    }
-
-    /**
-     * 高难度模式第 {@code attempt} 次尝试使用的墙密度增量。
-     *
-     * <p>从紧到松轮着试：通道越窄，箱子越难掉头，解法数量越少、难度越高；
-     * 万一太紧造不出关卡，后面几档会自动放宽。</p>
-     *
-     * @param attempt 尝试序号
-     * @return 附加到基础墙密度上的增量
-     */
-    static double densityFor(int attempt) {
-        return STRICT_WALL_STEPS[attempt % STRICT_WALL_STEPS.length];
     }
 
     /**
@@ -367,9 +374,23 @@ public final class EndlessGenerator {
 
     /* ---------------- 单次尝试 ---------------- */
 
-    private Generated attempt(int number, int width, int height, int scale,
-                              int targetPulls, int minPulls, double extraDensity,
-                              Random random) {
+    /**
+     * 铺一张迷宫地形（不含箱子、目标点、玩家）。
+     *
+     * <p>“铺地”比“摆箱子”便宜得多，所以生成一层时只铺一次地形，
+     * 然后在这张地形上反复尝试摆箱子（见 {@link #attempt}），
+     * 免得为了找一个能用的箱子摆法反复重铺地图。</p>
+     *
+     * @param number       无尽层号
+     * @param width        宽
+     * @param height       高
+     * @param scale        扩张档次
+     * @param extraDensity 附加墙密度（高难度模式下从紧到松轮着试）
+     * @param random       随机源
+     * @return 地形（{@code true} 表示墙）；铺失败返回 {@code null}
+     */
+    private boolean[][] carveTerrain(int number, int width, int height, int scale,
+                                     double extraDensity, Random random) {
         boolean[][] wall = new boolean[height][width];
         for (int x = 0; x < width; x++) {
             wall[0][x] = true;
@@ -383,19 +404,148 @@ public final class EndlessGenerator {
         // 以“墙段游走”的方式铺墙：墙体连成串，形成走廊和拐角，
         // 而不是在一片空地上撒几根孤立柱子。这既能避免空旷场地，也能收紧箱子的活动余地。
         int interior = (width - 2) * (height - 2);
-        int boxCount = boxCountFor(scale, interior, MAX_BOXES);
         boolean highDifficulty = number > STRICT_FROM_LEVEL;
-        if (highDifficulty) {
-            boxCount = MIN_BOXES_STRICT;
-        }
-        {
+        int boxCount = highDifficulty
+                ? MIN_BOXES_STRICT
+                : boxCountFor(scale, interior, MAX_BOXES);
+        if (highDifficulty && width >= 8 && height >= 8) {
+            // 高难度模式用真正的迷宫：一格宽的通道 + 死胡同，再打通一些墙形成环路。
+            // 这样地图不会有“一大片空地”，也不会有“三面是墙”的大块死角。
+            carveMazeTerrain(wall, width, height, random);
+        } else {
             int minOpen = Math.max(boxCount * 5 + 6, (int) Math.round(interior * 0.42));
-            // 高难度模式下墙密度从紧到松轮着试：通道越窄，箱子越难掉头，
-            // 解法数量越少、难度越高；实在造不出来再逐步放宽
             double ratio = Math.min(WALL_RATIO_MAX + 0.2d,
                     wallRatioFor(number) + extraDensity);
             int wallTarget = (int) Math.round(interior * ratio);
             carveWalls(wall, width, height, wallTarget, minOpen, random);
+        }
+        return countOpen(wall, width, height) < boxCount + 3 ? null : wall;
+    }
+
+    /**
+     * 挖一张“有环路”的迷宫地形。
+     *
+     * <p>先用递归回溯法在网格上挖出一格宽的通道（得到一张没有环的完美迷宫），
+     * 再随机打通一部分墙形成环路。环路是必须的：没有环路时玩家永远绕不到箱子的另一侧，
+     * 箱子只能单向推进，既不好玩也摆不出有难度的局。</p>
+     *
+     * @param wall   输出：墙的分布（调用前只需保证边框是墙）
+     * @param width  宽
+     * @param height 高
+     * @param random 随机源
+     */
+    private static void carveMazeTerrain(boolean[][] wall, int width, int height,
+                                         Random random) {
+        // 先把内部全部填成墙
+        for (int y = 1; y < height - 1; y++) {
+            for (int x = 1; x < width - 1; x++) {
+                wall[y][x] = true;
+            }
+        }
+        int roomCols = (width - 1) / 2;      // 通道格之间的间距为 2，所以要除以 2
+        int roomRows = (height - 1) / 2;
+        if (roomCols < 2 || roomRows < 2) {
+            return;
+        }
+
+        // 递归回溯：从随机房间出发，随机走向没访问过的邻居并打通中间那面墙
+        boolean[] visited = new boolean[roomCols * roomRows];
+        Deque<int[]> stack = new ArrayDeque<int[]>();
+        List<int[]> options = new ArrayList<int[]>();
+        int[][] steps = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+
+        int startCol = random.nextInt(roomCols);
+        int startRow = random.nextInt(roomRows);
+        visited[startRow * roomCols + startCol] = true;
+        wall[1 + startRow * 2][1 + startCol * 2] = false;
+        stack.push(new int[] {startCol, startRow});
+
+        while (!stack.isEmpty()) {
+            int[] current = stack.peek();
+            options.clear();
+            for (int[] step : steps) {
+                int nc = current[0] + step[0];
+                int nr = current[1] + step[1];
+                if (nc < 0 || nr < 0 || nc >= roomCols || nr >= roomRows) {
+                    continue;
+                }
+                if (visited[nr * roomCols + nc]) {
+                    continue;
+                }
+                options.add(new int[] {nc, nr});
+            }
+            if (options.isEmpty()) {
+                stack.pop();
+                continue;
+            }
+            int[] next = options.get(random.nextInt(options.size()));
+            int midX = 1 + current[0] * 2 + (next[0] - current[0]);
+            int midY = 1 + current[1] * 2 + (next[1] - current[1]);
+            wall[midY][midX] = false;
+            wall[1 + next[1] * 2][1 + next[0] * 2] = false;
+            visited[next[1] * roomCols + next[0]] = true;
+            stack.push(next);
+        }
+
+        // 打通一部分墙形成环路。比例越高岔路越多，箱子能绕的方向也越多。
+        int rooms = roomCols * roomRows;
+        int loops = Math.max(2, (int) Math.round(rooms * MAZE_LOOP_RATIO));
+        int guard = 0;
+        while (loops > 0 && guard++ < loops * 80) {
+            int x = 1 + random.nextInt(width - 2);
+            int y = 1 + random.nextInt(height - 2);
+            if (!wall[y][x]) {
+                continue;
+            }
+            boolean horizontal = !wall[y][x - 1] && !wall[y][x + 1]
+                    && wall[y - 1][x] && wall[y + 1][x];
+            boolean vertical = !wall[y - 1][x] && !wall[y + 1][x]
+                    && wall[y][x - 1] && wall[y][x + 1];
+            if (horizontal || vertical) {
+                wall[y][x] = false;
+                loops--;
+            }
+        }
+
+        // 上面只打开了“一格宽”的环路，对推箱子来说还是太紧：箱子常常推不进去、绕不出来。
+        // 这里再“挖隧道”：从一个随机位置朝一个方向一直走，把沿途的墙全部打通，
+        // 直到撞上更宽的墙为止。隧道会穿过多条通道，形成一批开阔的十字路口，
+        // 箱子才有空间被推着拐弯。数量按地图大小取，隧道越多场地越开阔。
+        int tunnels = Math.max(3, rooms / 3);
+        for (int i = 0; i < tunnels; i++) {
+            int x = 1 + random.nextInt(width - 2);
+            int y = 1 + random.nextInt(height - 2);
+            SokobanGame.Dir dir = SokobanGame.Dir
+                    .values()[random.nextInt(SokobanGame.Dir.values().length)];
+            int length = Math.max(3, Math.min(width, height) / 2);
+            for (int step = 0; step < length; step++) {
+                if (x <= 0 || y <= 0 || x >= width - 1 || y >= height - 1) {
+                    break;
+                }
+                wall[y][x] = false;
+                x += dir.dx;
+                y += dir.dy;
+            }
+        }
+    }
+
+    private Generated attempt(int number, int width, int height, int scale,
+                              int targetPulls, int minPulls, double extraDensity,
+                              Random random) {
+        boolean[][] wall = carveTerrain(number, width, height, scale, extraDensity, random);
+        return wall == null ? null
+                : attemptOnTerrain(number, width, height, scale, targetPulls, minPulls,
+                        wall, random);
+    }
+
+    /** 在一张已经铺好的地形上摆箱子、目标点和玩家。 */
+    private Generated attemptOnTerrain(int number, int width, int height, int scale,
+                                       int targetPulls, int minPulls,
+                                       boolean[][] wall, Random random) {
+        int boxCount = boxCountFor(scale, (width - 2) * (height - 2), MAX_BOXES);
+        boolean highDifficulty = number > STRICT_FROM_LEVEL;
+        if (highDifficulty) {
+            boxCount = MIN_BOXES_STRICT;
         }
 
         List<int[]> open = new ArrayList<int[]>();
@@ -563,27 +713,29 @@ public final class EndlessGenerator {
             int[] chosen = pool.get(random.nextInt(pool.size()));
             SokobanGame.Dir dir = dirs[chosen[2]];
 
+            int standX = px;
+            int standY = py;
             List<SokobanGame.Dir> walk = pathTo(wall, box, width, height,
-                    px, py, chosen[0], chosen[1]);
+                    standX, standY, chosen[0], chosen[1]);
             if (walk == null) {
                 continue;
             }
             for (SokobanGame.Dir w : walk) {
-                steps.add(new Step(w, false));
-                px += w.dx;
-                py += w.dy;
+                standX += w.dx;
+                standY += w.dy;
             }
 
-            int sourceX = px + dir.dx;
-            int sourceY = py + dir.dy;
+            int sourceX = standX + dir.dx;
+            int sourceY = standY + dir.dy;
             int movedId = boxId[sourceY][sourceX];
             box[sourceY][sourceX] = false;
             boxId[sourceY][sourceX] = 0;
-            box[py][px] = true;
-            boxId[py][px] = movedId;
-            px -= dir.dx;
-            py -= dir.dy;
-            steps.add(new Step(dir, true));
+            box[standY][standX] = true;
+            boxId[standY][standX] = movedId;
+            px = standX - dir.dx;
+            py = standY - dir.dy;
+            // 记下这一步：重建正向解法时要用“箱子身份 + 玩家站位 + 箱子落点”
+            steps.add(new Step(movedId, standY * width + standX, sourceY * width + sourceX));
             visited.add(stateKey(box, py * width + px, width, height));
             pulls++;
         }
@@ -596,18 +748,27 @@ public final class EndlessGenerator {
         if (pulls < minPulls) {
             return null;
         }
+        if (minBoxTargetDistance(boxId, targets, width, height) < MIN_BOX_TARGET_DISTANCE) {
+            // 有箱子还贴在目标点附近，这种局面一眼就是送分题，提前丢掉，
+            // 免得把几十次拉箱的成果白送到最后的复核
+            return null;
+        }
         if (allBoxesOnOwnTargets(boxId, targets, width, height)) {
             // 拉完还全是已解状态，等于开局即通关，丢弃
             return null;
         }
-        List<SokobanGame.Dir> solution = reverseToSolution(steps);
-        // 按最终棋盘的“行优先”顺序整理配对关系，交给 Level 校验并保存
+        // 按最终棋盘的“行优先”顺序整理配对关系，交给 Level 校验并保存；
+        // 同时记下每个箱子在“最终箱子数组”里的下标，重建解法时要用它定位箱子
         int[] pairTargets = new int[boxCount];
+        int[] idToIndex = new int[boxCount + 1];
         int pairIndex = 0;
         for (int y = 0; y < height; y++) {
             for (int x = 0; x < width; x++) {
                 if (boxId[y][x] != 0) {
-                    pairTargets[pairIndex++] = targets[boxId[y][x] - 1];
+                    int id = boxId[y][x];
+                    pairTargets[pairIndex] = targets[id - 1];
+                    idToIndex[id] = pairIndex;
+                    pairIndex++;
                 }
             }
         }
@@ -615,16 +776,83 @@ public final class EndlessGenerator {
         String[] rows = toRows(wall, box, goal, px, py, width, height);
         Level level = new Level("无尽第 " + number + " 层", pairTargets, rows);
 
+        // 把反向拉箱序列还原成一条正向通关解法。
+        // 这里不能简单地把列表倒过来取反方向：拉箱的逆操作是同方向的推箱，
+        // 而两次拉箱之间玩家还得从上一处走到下一处，路径必须重新算，
+        // 否则“倒过来”的序列根本走不通（这正是以前解法大量失效的原因）。
+        List<SokobanGame.Dir> solution = buildSolution(level, steps, idToIndex);
         // 自检：自带解法必须真的能逐步走到通关，否则丢弃这个候选。
         // 这是“必须保证有解”的最后一道防线。
-        if (!solutionWorks(level, solution)) {
+        if (solution == null || !solutionWorks(level, solution)) {
             return null;
         }
         // 每个箱子开局必须离它自己的目标点足够远
         if (!everyBoxFarFromTarget(level, MIN_BOX_TARGET_DISTANCE)) {
+
             return null;
         }
         return new Generated(level, solution);
+    }
+
+    /**
+     * 把反向拉箱序列还原成一条正向通关解法。
+     *
+     * <p>反向拉箱的每一步是“玩家在 {@code stand} 把箱子从 {@code source} 拉到 {@code stand}”。
+     * 倒过来看就是“玩家走到 {@code source}，把箱子从 {@code source} 推到 {@code stand}”。
+     * 所以从序列末尾往前遍历：先用最短路径把玩家走到 {@code source}，再推一下。
+     * 中间那段路必须现算，因为箱子位置已经变了，倒放原来的走动方向是错的。</p>
+     *
+     * @param level     关卡
+     * @param steps     反向拉箱序列
+     * @param idToIndex 箱子身份 → 最终箱子数组下标
+     * @return 完整操作序列；某一步走不通时返回 {@code null}
+     */
+    private static List<SokobanGame.Dir> buildSolution(Level level, List<Step> steps,
+                                                       int[] idToIndex) {
+        int width = level.getWidth();
+        int[] state = Solver.initialState(level);
+        List<SokobanGame.Dir> solution = new ArrayList<SokobanGame.Dir>();
+
+        for (int i = steps.size() - 1; i >= 0; i--) {
+            Step step = steps.get(i);
+            int boxIndex = idToIndex[step.boxId];
+            // 这一步拉箱把箱子从 step.to 拉到了 step.stand；倒过来就是把它从
+            // step.stand（箱子现在所在的位置）推回 step.to
+            SokobanGame.Dir dir = direction(step.stand, step.to, width);
+            if (dir == null) {
+                return null;
+            }
+            // 推箱前玩家必须站在箱子外面那一格
+            int standCell = step.stand - dir.dx - dir.dy * width;
+
+            List<SokobanGame.Dir> walk = Solver.walkPath(level, state, standCell);
+            if (walk == null) {
+                return null;
+            }
+            for (SokobanGame.Dir move : walk) {
+                if (!Solver.apply(level, state, move)) {
+                    return null;
+                }
+                solution.add(move);
+            }
+            if (!Solver.apply(level, state, dir)) {
+                return null;
+            }
+            solution.add(dir);
+        }
+        return solution;
+    }
+
+    /** 从 {@code from} 走到相邻的 {@code to} 是哪个方向；不相邻时返回 {@code null}。 */
+    private static SokobanGame.Dir direction(int from, int to, int width) {
+        int dx = to % width - from % width;
+        int dy = to / width - from / width;
+        for (SokobanGame.Dir dir : SokobanGame.Dir.values()) {
+            if (dir.dx == dx && dir.dy == dy) {
+                return dir;
+            }
+        }
+        return null;
     }
 
     /* ---------------- 严格模式：强制走廊 ---------------- */
@@ -1126,25 +1354,6 @@ public final class EndlessGenerator {
             }
         }
         return moved;
-    }
-
-    /**
-     * 把“反向拉箱序列”倒过来变成一条正向通关步骤。
-     *
-     * <p>这里有个容易踩的坑：拉箱的逆操作是<b>同方向</b>的推箱，
-     * 而走动的逆操作是<b>反方向</b>的走动。所以不能简单地把列表倒序，
-     * 走动步骤的方向必须取反，否则生成的解法根本走不通。</p>
-     *
-     * @param steps 拉箱序列
-     * @return 正向通关步骤
-     */
-    private static List<SokobanGame.Dir> reverseToSolution(List<Step> steps) {
-        List<SokobanGame.Dir> solution = new ArrayList<SokobanGame.Dir>(steps.size());
-        for (int i = steps.size() - 1; i >= 0; i--) {
-            Step step = steps.get(i);
-            solution.add(step.push ? step.dir : step.dir.opposite());
-        }
-        return solution;
     }
 
     /** 用真实的游戏规则回放一遍解法，确认它真的能通关。 */

@@ -472,6 +472,18 @@ public final class Solver {
     }
 
     /** 玩家绕过墙和箱子从当前位置走到目标格的最短路径。 */
+    /**
+     * 玩家绕过墙和箱子从当前位置走到目标格的最短路径。
+     *
+     * @param level  关卡
+     * @param state  当前局面（{@code [0]} 是玩家位置，之后是箱子）
+     * @param target 目标格下标
+     * @return 每一步的方向；走不到返回 {@code null}
+     */
+    public static List<SokobanGame.Dir> walkPath(Level level, int[] state, int target) {
+        return path(level, state, target);
+    }
+
     private static List<SokobanGame.Dir> path(Level level, int[] state, int target) {
         int width = level.getWidth();
         int height = level.getHeight();
