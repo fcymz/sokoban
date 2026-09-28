@@ -1,6 +1,7 @@
 package com.ruoyi.web;
 
 import com.ruoyi.web.dto.GameStateDto;
+import com.ruoyi.web.dto.HintDto;
 import com.ruoyi.web.dto.LevelChangeRequest;
 import com.ruoyi.web.dto.MoveRequest;
 import com.ruoyi.web.dto.NewGameRequest;
@@ -13,7 +14,6 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.util.LinkedHashMap;
 import java.util.Map;
 
 /**
@@ -143,14 +143,8 @@ public class GameController {
      * @return 解法步骤与说明
      */
     @PostMapping("/sessions/{sessionId}/hint")
-    public Map<String, Object> hint(@PathVariable String sessionId) {
+    public HintDto hint(@PathVariable String sessionId) {
         GameSessionService.HintResult hint = service.hint(sessionId);
-        GameStateDto state = service.state(sessionId);
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("plan", hint.plan());
-        body.put("total", Integer.valueOf(hint.total()));
-        body.put("message", hint.message());
-        body.put("state", state);
-        return body;
+        return new HintDto(hint.plan(), hint.total(), hint.message(), service.state(sessionId));
     }
 }

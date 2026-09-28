@@ -56,11 +56,6 @@ public final class SaveManager {
         }
     }
 
-    /** @return 存档目录；拿不到时为 {@code null}。 */
-    public File getDirectory() {
-        return dir;
-    }
-
     /**
      * 读取一个槽。
      *

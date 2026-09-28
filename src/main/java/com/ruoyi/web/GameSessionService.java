@@ -342,16 +342,6 @@ public class GameSessionService {
         return result;
     }
 
-    /**
-     * 取某个种子的展示码（用于界面回显）。
-     *
-     * @param seedCode 用户输入的种子码
-     * @return 规范化的种子码
-     */
-    public String normalizeSeed(String seedCode) {
-        return SeedCode.format(seedBaseOf(seedCode));
-    }
-
     /* ---------------- 内部工具 ---------------- */
 
     private Campaign buildCampaign(String seedCode) {

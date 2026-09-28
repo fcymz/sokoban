@@ -263,11 +263,6 @@ public final class Level {
         return boxTargets == null ? -1 : boxTargets[boxIndex];
     }
 
-    /** @return 专属目标点数组的副本；未启用配对时返回 {@code null}。 */
-    public int[] getBoxTargets() {
-        return boxTargets == null ? null : boxTargets.clone();
-    }
-
     /**
      * 第 i 个箱子的配对编号，用于界面上的图标。
      *
@@ -328,16 +323,6 @@ public final class Level {
             return isGoal(cell);
         }
         return cell == boxTargets[boxIndex];
-    }
-
-    /**
-     * 把一维下标转成坐标。
-     *
-     * @param index 一维下标
-     * @return 长度为 2 的数组 {@code {x, y}}
-     */
-    public int[] toXY(int index) {
-        return new int[] {index % width, index / width};
     }
 
     @Override

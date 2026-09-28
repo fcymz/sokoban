@@ -176,8 +176,7 @@ src/main/java/com/ruoyi/
     Campaign.java                 内置关卡 + 无尽关卡（按种子复现）
     EndlessGenerator.java         无尽关卡生成（保证有解 + 难度挑选）
     Solver.java                   求解器（提示用，尽量短）
-    SolutionCounter.java          解法数量统计（生成器用的难度口径）
-    SeedCode.java / CheatCode.java / SaveManager.java / SaveSlot.java / SaveData.java
+    SeedCode.java / SaveManager.java / SaveSlot.java / SaveData.java
   web/                          REST 层
     GameSessionService.java       会话与存档编排，规则判定集中在这里
     GameController.java           /api/game/**
@@ -195,12 +194,13 @@ scripts/
   jdk.ps1                       本项目需要的 JDK 路径（换机器改这里）
   api-test.ps1                  后端接口实测（curl 打真实 HTTP）
   e2e-test.mjs                  走前端代理的端到端联调
+  brace_check.py                改完 Java 后校验花括号是否配平（可选开发工具）
 ```
 
 ## 测试
 
 ```powershell
-# 1) 内核自检（258 项断言）
+# 1) 内核自检（248 项断言）
 .\mvn17.ps1 -DskipTests package
 java -cp target/classes:target/test-classes com.ruoyi.sokoban.SokobanSelfTest
 

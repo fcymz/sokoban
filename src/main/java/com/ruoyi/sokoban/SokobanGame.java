@@ -607,11 +607,6 @@ public final class SokobanGame {
         return isEndless() ? campaign.getEndlessNumber(levelIndex) : 0;
     }
 
-    /** @return 当前关卡名。 */
-    public String getLevelName() {
-        return level.getName();
-    }
-
     /** @return 当前关卡标题，例如 {@code 第 3 关 · 穿廊} 或 {@code 无尽第 12 层}。 */
     public String getLevelTitle() {
         return campaign.getTitle(levelIndex);

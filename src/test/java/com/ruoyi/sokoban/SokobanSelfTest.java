@@ -290,39 +290,6 @@ public final class SokobanSelfTest {
                 legacy.canAdvance() && legacy.changeLevel(1) && legacy.getEndlessNumber() == 2);
         check("下一层未通关时再次禁止前进", !legacy.canAdvance() && !legacy.changeLevel(1));
 
-        section("作弊码：上下左右左右上下");
-        SokobanGame.Dir[] cheatSequence = {
-            SokobanGame.Dir.UP, SokobanGame.Dir.DOWN,
-            SokobanGame.Dir.LEFT, SokobanGame.Dir.RIGHT,
-            SokobanGame.Dir.LEFT, SokobanGame.Dir.RIGHT,
-            SokobanGame.Dir.UP, SokobanGame.Dir.DOWN
-        };
-        CheatCode code = new CheatCode();
-        boolean premature = false;
-        for (int i = 0; i < cheatSequence.length - 1; i++) {
-            premature |= code.input(cheatSequence[i]);
-        }
-        check("只按前 7 下不会触发", !premature);
-        check("按满 8 下触发作弊码",
-                code.input(cheatSequence[cheatSequence.length - 1]));
-        check("触发后记录被清空，可以再次触发",
-                !code.input(SokobanGame.Dir.UP) && replayCheatSequence(code, cheatSequence));
-
-        CheatCode wrong = new CheatCode();
-        for (int i = 0; i < cheatSequence.length - 1; i++) {
-            wrong.input(cheatSequence[i]);
-        }
-        check("最后一下按错不触发", !wrong.input(SokobanGame.Dir.LEFT));
-
-        CheatCode sliding = new CheatCode();
-        sliding.input(SokobanGame.Dir.UP);
-        sliding.input(SokobanGame.Dir.UP);
-        boolean hit = false;
-        for (SokobanGame.Dir dir : cheatSequence) {
-            hit = sliding.input(dir);
-        }
-        check("前面多按几下也能靠滑动窗口识别出来", hit);
-
         section("作弊效果：无尽模式可以跳关");
         SokobanGame cheatGame = new SokobanGame(Campaign.createSeeded(11L));
         check("先进入无尽第 1 层", cheatGame.loadLevel(levels.size()));
@@ -339,19 +306,6 @@ public final class SokobanSelfTest {
         check("关掉作弊恢复限制",
                 cheatGame.setEndlessSkipUnlocked(false) && !cheatGame.isEndlessSkipUnlocked());
         check("关掉后未通关又不能前进", !cheatGame.canAdvance() && !cheatGame.changeLevel(1));
-
-        // 把“按键 → 识别 → 解锁”整条链路串起来跑一遍（和窗口里的接法一致）
-        SokobanGame wired = new SokobanGame(Campaign.createSeeded(3L));
-        check("先进入无尽第 1 层", wired.loadLevel(levels.size()));
-        CheatCode wiredCode = new CheatCode();
-        boolean unlocked = false;
-        for (SokobanGame.Dir dir : cheatSequence) {
-            if (wiredCode.input(dir)) {
-                unlocked = wired.setEndlessSkipUnlocked(true);
-            }
-        }
-        check("按完序列后无尽模式立刻可以跳关",
-                unlocked && wired.canAdvance() && wired.changeLevel(1));
 
         section("存档槽：写入 / 读取 / 删除");
         File saveDir = new File(outDir, "test-saves");
@@ -626,35 +580,6 @@ public final class SokobanSelfTest {
         check("未配对的关卡沿用经典规则（任意目标点即可）",
                 !levels.get(0).isPaired() && levels.get(0).isSolvedBy(new int[] {2 * 7 + 4}));
 
-        section("走法统计：口径校验");
-        SolutionCounter.Result single = SolutionCounter.count(
-                new Level("直线", "#####", "#@$.#", "#####"), 50, 100000, 200000);
-        check("只有一条路的关卡统计为 1 种走法",
-                single.isExact() && single.getCount() == 1,
-                "count=" + single.getCount() + " exact=" + single.isExact());
-
-        SolutionCounter.Result roomy = SolutionCounter.count(
-                levels.get(3), 100, 100000, 200000);
-        check("空旷关卡走法明显超过 10 种",
-                roomy.getCount() > 10, "count=" + roomy.getCount());
-
-        int exactCount = 0;
-        boolean allExactPositive = true;
-        for (int i = 0; i < levels.size(); i++) {
-            SolutionCounter.Result r = SolutionCounter.count(levels.get(i), 1000, 50000, 60000);
-            if (!r.isExact()) {
-                continue;
-            }
-            exactCount++;
-            if (r.getCount() < 1) {
-                allExactPositive = false;
-            }
-        }
-        check("能统计完的内置关卡走法数都 >= 1（" + exactCount + "/" + levels.size()
-                        + " 关可精确统计）",
-                allExactPositive && exactCount >= 6,
-                "exact=" + exactCount + " allPositive=" + allExactPositive);
-
         section("无尽模式：20 层之后箱子不少于 3 个、最短解够长，且不能是水关");
         Random strictRandom = new Random(24680L);
         for (int number = 21; number <= 26; number++) {
@@ -827,15 +752,6 @@ public final class SokobanSelfTest {
             }
         }
         file.delete();
-    }
-
-    /** 完整按一遍作弊码，返回最后一下是否触发。 */
-    private static boolean replayCheatSequence(CheatCode code, SokobanGame.Dir[] sequence) {
-        boolean hit = false;
-        for (SokobanGame.Dir dir : sequence) {
-            hit = code.input(dir);
-        }
-        return hit;
     }
 
     /** 每个箱子到“自己专属目标点”的曼哈顿距离中的最小值。 */

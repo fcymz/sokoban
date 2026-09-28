@@ -9,8 +9,8 @@ import type { Direction, GameState, HintResult, LevelInfo, SaveSlot } from './ty
  */
 const BASE = '/api'
 
-/** 后端返回的错误说明。 */
-export interface ApiErrorBody {
+/** 后端返回的错误说明（仅本文件内部使用）。 */
+interface ApiErrorBody {
   error?: number
   message?: string
 }
@@ -54,11 +54,6 @@ export function createSession(seedCode?: string, endless = false): Promise<GameS
     method: 'POST',
     body: JSON.stringify({ seedCode: seedCode ?? null, endless }),
   })
-}
-
-/** 读取当前局面。 */
-export function fetchState(sessionId: string): Promise<GameState> {
-  return request<GameState>(`/game/sessions/${sessionId}`)
 }
 
 /** 走一步。 */

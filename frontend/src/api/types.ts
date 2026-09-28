@@ -8,8 +8,8 @@
 /** 方向名，与后端 `SokobanGame.Dir` 的枚举名一致。 */
 export type Direction = 'UP' | 'DOWN' | 'LEFT' | 'RIGHT'
 
-/** 一关的棋盘信息。 */
-export interface LevelDto {
+/** 一关的棋盘信息（作为 {@link GameState.level} 的字段类型使用）。 */
+interface LevelDto {
   name: string
   title: string
   width: number
