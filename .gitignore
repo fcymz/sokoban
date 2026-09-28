@@ -4,6 +4,13 @@ target/
 !**/src/test/**/target/
 .kotlin
 
+### 前端（frontend/：Vue 3 + Vite）###
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/*.local
+npm-debug.log*
+
 ### IntelliJ IDEA ###
 .idea/modules.xml
 .idea/jarRepositories.xml
