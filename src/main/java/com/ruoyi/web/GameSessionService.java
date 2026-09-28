@@ -40,7 +40,14 @@ public class GameSessionService {
 
     private final Map<String, Session> sessions = new ConcurrentHashMap<>();
     private final SaveManager saves = new SaveManager();
-    private final SaveData saveData = new SaveData();
+    private final SaveData saveData;
+
+    /**
+     * @param saveData 成绩与进度存档（Spring 单例，保证写完成绩后成绩榜立刻读得到）
+     */
+    public GameSessionService(SaveData saveData) {
+        this.saveData = saveData;
+    }
 
     /** 一个会话：游戏状态 + 它的关卡来源。 */
     private static final class Session {
@@ -82,7 +89,7 @@ public class GameSessionService {
         }
         String id = UUID.randomUUID().toString();
         sessions.put(id, new Session(game, campaign));
-        return GameMapper.toState(id, game, campaign);
+        return stateOf(id, new Session(game, campaign));
     }
 
     /**
@@ -108,7 +115,7 @@ public class GameSessionService {
      */
     public GameStateDto state(String sessionId) {
         Session session = require(sessionId);
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return stateOf(sessionId, session);
     }
 
     /**
@@ -138,7 +145,7 @@ public class GameSessionService {
         if (moved && session.game().isWon()) {
             recordWin(session);
         }
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return stateOf(sessionId, session);
     }
 
     /**
@@ -150,7 +157,7 @@ public class GameSessionService {
     public GameStateDto undo(String sessionId) {
         Session session = require(sessionId);
         session.game().undo();
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return stateOf(sessionId, session);
     }
 
     /**
@@ -162,7 +169,7 @@ public class GameSessionService {
     public GameStateDto reset(String sessionId) {
         Session session = require(sessionId);
         session.game().reset();
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return stateOf(sessionId, session);
     }
 
     /**
@@ -178,7 +185,7 @@ public class GameSessionService {
         if (!session.game().loadLevel(index)) {
             throw new LevelLockedException(index);
         }
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return stateOf(sessionId, session);
     }
 
     /**
@@ -194,7 +201,7 @@ public class GameSessionService {
         if (!session.game().changeLevel(delta)) {
             throw new LevelLockedException(session.game().getLevelIndex() + delta);
         }
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return stateOf(sessionId, session);
     }
 
     /**
@@ -207,7 +214,7 @@ public class GameSessionService {
     public GameStateDto setEndlessSkip(String sessionId, boolean unlocked) {
         Session session = require(sessionId);
         session.game().setEndlessSkipUnlocked(unlocked);
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return stateOf(sessionId, session);
     }
 
     /**
@@ -312,7 +319,7 @@ public class GameSessionService {
         }
         String id = UUID.randomUUID().toString();
         sessions.put(id, new Session(game, campaign));
-        return GameMapper.toState(id, game, campaign);
+        return stateOf(id, new Session(game, campaign));
     }
 
     /**
@@ -329,7 +336,7 @@ public class GameSessionService {
     /* ---------------- 关卡信息 ---------------- */
 
     /**
-     * 列出内置关卡（无尽关卡按需求生成，不预先枚举）。
+     * 列出内置关卡（无尽关卡按需求生成，不预先枚举），并带上每关的最佳步数。
      *
      * @return 内置关卡列表
      */
@@ -337,12 +344,24 @@ public class GameSessionService {
         Campaign campaign = Campaign.createDefault();
         List<LevelInfoDto> result = new ArrayList<>();
         for (int i = 0; i < campaign.getBuiltInCount(); i++) {
-            result.add(GameMapper.toLevelInfo(campaign, i));
+            result.add(GameMapper.toLevelInfo(campaign, i, saveData.getBest(i)));
         }
         return result;
     }
 
     /* ---------------- 内部工具 ---------------- */
+
+    /**
+     * 把会话映射成快照，顺带带上当前关卡的历史最佳步数。
+     *
+     * @param sessionId 会话编号
+     * @param session   会话
+     * @return 快照
+     */
+    private GameStateDto stateOf(String sessionId, Session session) {
+        int best = saveData.getBest(session.game().getLevelIndex());
+        return GameMapper.toState(sessionId, session.game(), session.campaign(), best);
+    }
 
     private Campaign buildCampaign(String seedCode) {
         long seed = seedBaseOf(seedCode);

@@ -28,6 +28,7 @@ import java.util.List;
  * @param canAdvance    当前是否允许进入下一关
  * @param endlessSkip   作弊开关是否打开（无尽模式可跳关）
  * @param seedCode      无尽关卡的种子展示码
+ * @param bestSteps     当前关卡的历史最佳步数；还没有纪录时为 -1
  */
 public record GameStateDto(
         String sessionId,
@@ -50,5 +51,6 @@ public record GameStateDto(
         int maxUnlocked,
         boolean canAdvance,
         boolean endlessSkip,
-        String seedCode) {
+        String seedCode,
+        int bestSteps) {
 }

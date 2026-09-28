@@ -84,6 +84,39 @@ const main = async () => {
     `player ${loaded.data.player}/${before.player}`)
   await call('DELETE', '/api/saves/5')
 
+  console.log('== 成绩榜（每关最佳步数）==')
+  const boardSession = await call('POST', '/api/game/sessions', {})
+  const boardSid = boardSession.data.sessionId
+  const beforeBoard = await call('GET', '/api/scores')
+  check('GET /api/scores 经代理返回 200', beforeBoard.status === 200,
+    `status=${beforeBoard.status}`)
+  const prevBest = beforeBoard.data.entries.find((e) => e.levelIndex === 0)?.bestSteps ?? -1
+
+  const boardPlan = (await call('POST', `/api/game/sessions/${boardSid}/hint`)).data.plan
+  let boardState = boardSession.data
+  for (const dir of boardPlan) {
+    boardState = (await call('POST', `/api/game/sessions/${boardSid}/moves`, { dir })).data
+  }
+  check('通关后快照里带回本关最佳步数', boardState.won && boardState.bestSteps > 0,
+    `won=${boardState.won} best=${boardState.bestSteps}`)
+  check('首次通关时最佳步数等于本次步数', boardState.bestSteps === boardState.steps
+    || boardState.bestSteps < boardState.steps,
+    `best=${boardState.bestSteps} steps=${boardState.steps}`)
+
+  const afterBoard = (await call('GET', '/api/scores')).data
+  const entry = afterBoard.entries.find((e) => e.levelIndex === 0)
+  check('成绩榜里出现第 1 关', Boolean(entry), 'no entry for level 0')
+  check('成绩榜记录不差于通关前', Boolean(entry) && entry.bestSteps <= boardState.steps,
+    `entry=${entry?.bestSteps} steps=${boardState.steps}`)
+  check('成绩榜带关卡标题',
+    Boolean(entry) && typeof entry.title === 'string' && entry.title.length > 0,
+    `title=${entry?.title}`)
+  console.log(`  （第 1 关通关前最佳 ${prevBest} → 现在 ${entry?.bestSteps}）`)
+
+  const levelList = (await call('GET', '/api/levels')).data
+  check('关卡列表也带上最佳步数', levelList.every((l) => typeof l.bestSteps === 'number'),
+    'missing bestSteps')
+
   console.log('')
   console.log(`结果：失败 ${failed} 项`)
   process.exit(failed > 0 ? 1 : 0)

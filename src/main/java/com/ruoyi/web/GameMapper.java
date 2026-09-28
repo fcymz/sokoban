@@ -31,9 +31,11 @@ public final class GameMapper {
      * @param sessionId 会话编号
      * @param game      游戏
      * @param campaign  关卡来源（用于取标题、进度、种子码）
+     * @param bestSteps 当前关卡的历史最佳步数；没有纪录时传 -1
      * @return 快照
      */
-    public static GameStateDto toState(String sessionId, SokobanGame game, Campaign campaign) {
+    public static GameStateDto toState(String sessionId, SokobanGame game, Campaign campaign,
+                                       int bestSteps) {
         int[] rawBoxes = game.getBoxes();
         List<Integer> boxes = new ArrayList<>(rawBoxes.length);
         List<Integer> boxLabels = new ArrayList<>(rawBoxes.length);
@@ -64,7 +66,8 @@ public final class GameMapper {
                 game.getMaxUnlockedLevel(),
                 game.canAdvance(),
                 game.isEndlessSkipUnlocked(),
-                campaign.getSeedCode());
+                campaign.getSeedCode(),
+                bestSteps);
     }
 
     /**
@@ -97,11 +100,12 @@ public final class GameMapper {
     /**
      * 映射关卡列表项。
      *
-     * @param campaign 关卡来源
-     * @param index    关卡下标
+     * @param campaign  关卡来源
+     * @param index     关卡下标
+     * @param bestSteps 该关的历史最佳步数；没有纪录时传 -1
      * @return 列表项
      */
-    public static LevelInfoDto toLevelInfo(Campaign campaign, int index) {
+    public static LevelInfoDto toLevelInfo(Campaign campaign, int index, int bestSteps) {
         // 注意：内置关卡调用 getEndlessNumber 会抛异常，必须先判断是不是无尽关卡
         boolean endless = campaign.isEndless(index);
         return new LevelInfoDto(index,
@@ -109,7 +113,8 @@ public final class GameMapper {
                 campaign.getShortProgress(index),
                 endless,
                 endless ? campaign.getEndlessNumber(index) : 0,
-                index < campaign.getBuiltInCount());
+                index < campaign.getBuiltInCount(),
+                bestSteps);
     }
 
     /**

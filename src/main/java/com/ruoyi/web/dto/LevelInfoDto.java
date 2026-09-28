@@ -9,6 +9,7 @@ package com.ruoyi.web.dto;
  * @param endless       是否属于无尽模式
  * @param endlessNumber 无尽层号；非无尽模式为 0
  * @param builtIn       是否是内置关卡
+ * @param bestSteps     该关的历史最佳步数；还没有纪录时为 -1
  */
 public record LevelInfoDto(
         int index,
@@ -16,5 +17,6 @@ public record LevelInfoDto(
         String shortProgress,
         boolean endless,
         int endlessNumber,
-        boolean builtIn) {
+        boolean builtIn,
+        int bestSteps) {
 }

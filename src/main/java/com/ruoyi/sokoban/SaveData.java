@@ -1,5 +1,7 @@
 package com.ruoyi.sokoban;
 
+import org.springframework.stereotype.Component;
+
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -8,6 +10,7 @@ import java.io.OutputStream;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.TreeSet;
 
 /**
  * 存档：每关最佳步数 + 已解锁到的关卡进度。
@@ -15,7 +18,11 @@ import java.util.Properties;
  * <p>保存在用户目录下的 {@code .sokoban-save.properties}。所有读写异常都会被静默吞掉：
  * 即使目录只读、沙箱受限或磁盘写入失败，游戏也只是“记不住成绩、记不住进度”，
  * 不会报错、不会弹窗、也不会刷日志。</p>
+ *
+ * <p>标注成 Spring 组件是为了全局只有一份内存状态：写完成绩之后，
+ * 成绩榜接口立刻就能读到，不必每次重新读文件。</p>
  */
+@Component
 public final class SaveData {
 
     /** 默认存档文件名。 */
@@ -77,6 +84,23 @@ public final class SaveData {
     /** @return 是否一条成绩记录都没有。 */
     public boolean hasNoScores() {
         return best.isEmpty();
+    }
+
+    /**
+     * 有成绩记录的关卡下标，升序。
+     *
+     * <p>成绩榜接口用它列出“打过哪些关”，而不是把可能的关卡号全列一遍。</p>
+     *
+     * @return 关卡下标列表
+     */
+    public int[] scoreLevels() {
+        TreeSet<Integer> keys = new TreeSet<Integer>(best.keySet());
+        int[] result = new int[keys.size()];
+        int i = 0;
+        for (Integer key : keys) {
+            result[i++] = key.intValue();
+        }
+        return result;
     }
 
     /**

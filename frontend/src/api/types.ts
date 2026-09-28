@@ -47,6 +47,8 @@ export interface GameState {
   canAdvance: boolean
   endlessSkip: boolean
   seedCode: string
+  /** 当前关卡的历史最佳步数；还没有纪录时为 -1 */
+  bestSteps: number
 }
 
 /** 关卡列表项。 */
@@ -57,6 +59,22 @@ export interface LevelInfo {
   endless: boolean
   endlessNumber: number
   builtIn: boolean
+  /** 该关的历史最佳步数；还没有纪录时为 -1 */
+  bestSteps: number
+}
+
+/** 成绩榜里的一关。 */
+export interface ScoreEntry {
+  levelIndex: number
+  title: string
+  shortProgress: string
+  bestSteps: number
+}
+
+/** 成绩榜。 */
+export interface ScoreBoard {
+  entries: ScoreEntry[]
+  total: number
 }
 
 /** 存档槽。 */
