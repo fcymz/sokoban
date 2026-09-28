@@ -195,6 +195,7 @@ scripts/
   api-test.ps1                  后端接口实测（curl 打真实 HTTP）
   e2e-test.mjs                  走前端代理的端到端联调
   brace_check.py                改完 Java 后校验花括号是否配平（可选开发工具）
+  audit_public_api.py           核实内核 public 方法有没有人调用（可选开发工具）
 ```
 
 ## 测试

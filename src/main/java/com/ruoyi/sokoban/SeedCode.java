@@ -107,16 +107,6 @@ public final class SeedCode {
         return Long.valueOf(value);
     }
 
-    /**
-     * 判断用户输入是否是合法种子。
-     *
-     * @param text 用户输入
-     * @return 合法返回 {@code true}
-     */
-    public static boolean isValid(String text) {
-        return parse(text) != null;
-    }
-
     /** @return 给界面用的格式说明。 */
     public static String hint() {
         return "种子格式：8 位字符（0-9 与 A-Z，不含 I / L / O / U），例如 7K3M-9QPZ";

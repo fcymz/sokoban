@@ -417,11 +417,13 @@ public final class SokobanSelfTest {
                 SeedCode.parse("IIII-IIII").longValue() == SeedCode.parse("1111-1111").longValue()
                         && SeedCode.parse("OOOO-OOOO").longValue()
                         == SeedCode.parse("0000-0000").longValue());
-        check("位数不够会被拒绝", !SeedCode.isValid("7K3M"));
-        check("位数太多会被拒绝", !SeedCode.isValid("7K3M9QPZ8"));
-        check("用了被剔除的字母 U 会被拒绝", !SeedCode.isValid("UUUU-UUUU"));
-        check("夹杂非法符号会被拒绝", !SeedCode.isValid("7K3M-9Q!Z"));
-        check("null 会被拒绝", !SeedCode.isValid(null));
+        // 种子的“合法性判断”就是 parse 是否返回 null，后端也直接用 parse 校验，
+        // 所以这里直接测 parse 即可（原来还有一个 isValid 包装，已删除）
+        check("位数不够会被拒绝", SeedCode.parse("7K3M") == null);
+        check("位数太多会被拒绝", SeedCode.parse("7K3M9QPZ8") == null);
+        check("用了被剔除的字母 U 会被拒绝", SeedCode.parse("UUUU-UUUU") == null);
+        check("夹杂非法符号会被拒绝", SeedCode.parse("7K3M-9Q!Z") == null);
+        check("null 会被拒绝", SeedCode.parse(null) == null);
 
         section("种子：同一个种子必然生成同一套无尽关卡");
         Campaign worldA = Campaign.createSeeded(SeedCode.parse(seedCode).longValue());
