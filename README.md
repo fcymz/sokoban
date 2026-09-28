@@ -22,16 +22,45 @@
 | Maven | 3.8+ |
 | Node.js | 18+（开发前端时需要；只跑后端则不需要） |
 
+## 先解决 JDK 版本问题（重要）
+
+这台机器的**系统级 `JAVA_HOME` 指向 JDK 8**，而系统级变量会压住用户级同名变量，
+所以直接在终端敲 `mvn` 会用 JDK 8 编译并失败。系统级变量需要管理员权限才能改，
+本项目不碰它，改用仓库内的便捷脚本把 `JAVA_HOME` 指向 JDK 17：
+
+```powershell
+# 方式一：用脚本执行 maven（推荐）
+.\mvn17.ps1 spring-boot:run             # 启动后端
+.\mvn17.ps1 -DskipTests package         # 打包
+.\mvn17.ps1 -v                          # 看 maven 用的哪个 JDK
+
+# 方式二：把 JDK 17 应用到当前终端会话，之后这个终端里直接敲 mvn 就行
+. .\mvn17.ps1 -Only
+mvn spring-boot:run
+```
+
+如果提示「禁止运行脚本」，加 `-ExecutionPolicy Bypass`：
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\mvn17.ps1 spring-boot:run
+```
+
+JDK 17 的路径写在 `scripts/jdk.ps1` 里的 `$env:SOKOBAN_JDK_HOME`，换机器只改这一处。
+脚本只修改当前进程的环境变量，不动机器上的任何全局配置，因此不会影响别的 Java 8 项目
+（比如 ruoyi）。
+
+在 IDE 里跑的话，把项目的 Project SDK 设为 JDK 17 即可。
+
 ## 启动后端
 
-```bash
-mvn spring-boot:run
+```powershell
+.\mvn17.ps1 spring-boot:run
 ```
 
 默认监听 <http://localhost:8080>。也可以先打包再运行：
 
-```bash
-mvn -DskipTests package
+```powershell
+.\mvn17.ps1 -DskipTests package
 java -jar target/test-1.0-SNAPSHOT.jar
 ```
 
@@ -122,21 +151,23 @@ src/test/java/com/ruoyi/sokoban/
   SokobanSelfTest.java          内核自检（无第三方依赖，直接 run main）
 
 frontend/                       Vue 3 + Vite + TypeScript 前端
+mvn17.ps1                       用 JDK 17 跑 maven 的便捷脚本（见上）
 scripts/
+  jdk.ps1                       本项目需要的 JDK 路径（换机器改这里）
   api-test.ps1                  后端接口实测（curl 打真实 HTTP）
   e2e-test.mjs                  走前端代理的端到端联调
 ```
 
 ## 测试
 
-```bash
+```powershell
 # 1) 内核自检（258 项断言）
-mvn -DskipTests package
+.\mvn17.ps1 -DskipTests package
 java -cp target/classes:target/test-classes com.ruoyi.sokoban.SokobanSelfTest
 
 # 2) 后端接口实测（需要后端已启动在 8080）
-pwsh scripts/api-test.ps1
+powershell -ExecutionPolicy Bypass -File scripts\api-test.ps1
 
 # 3) 端到端联调（需要后端 8080 + 前端 5173 都在跑）
-node scripts/e2e-test.mjs
+node scripts\e2e-test.mjs
 ```
