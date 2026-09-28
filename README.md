@@ -51,7 +51,46 @@ JDK 17 的路径写在 `scripts/jdk.ps1` 里的 `$env:SOKOBAN_JDK_HOME`，换机
 
 在 IDE 里跑的话，把项目的 Project SDK 设为 JDK 17 即可。
 
-## 启动后端
+## 一键启动（推荐）
+
+根本不用管上面那些细节，直接：
+
+```powershell
+.\start-dev.ps1
+```
+
+或者在资源管理器里**双击 `start-dev.cmd`**。脚本会自动完成：
+
+1. 检查 JDK 17 / Node / npm；
+2. 首次运行时装前端依赖（`npm install`）；
+3. 后端源码有改动就打一次 jar（已是最新则跳过）；
+4. 拉起后端 `java -jar`（:8080）与前端 `vite`（:5173）；
+5. 探活两端并确认 `/api` 代理连通；
+6. 自动打开浏览器到 <http://localhost:5173>。
+
+可选参数：
+
+| 参数 | 作用 |
+|---|---|
+| `-NoBrowser` | 只启动，不打开浏览器 |
+| `-Rebuild` | 强制重新打后端 jar |
+| `-SkipInstall` | 跳过 npm install 检查 |
+
+停止服务（双击 `stop-dev.cmd` 亦可）：
+
+```powershell
+.\stop-dev.ps1
+```
+
+日志写在 `target/dev-logs/`（`backend.log`、`frontend.log` 及其 `.err`），
+启动失败时脚本会直接把日志尾部打出来；两个服务的 PID 记在 `target/dev-logs/dev-pids.txt`。
+
+> 为什么脚本里用 `java -jar` 和 `node .../vite.js`，而不是 `mvn spring-boot:run` 和 `npm run dev`？
+> 后两者都会再 fork 一层子进程，脚本拿到的 PID 不是真正干活的进程，停止时容易留下孤儿进程占着端口。
+
+## 手动启动（想自己控制时）
+
+### 后端
 
 ```powershell
 .\mvn17.ps1 spring-boot:run
@@ -64,7 +103,7 @@ JDK 17 的路径写在 `scripts/jdk.ps1` 里的 `$env:SOKOBAN_JDK_HOME`，换机
 java -jar target/test-1.0-SNAPSHOT.jar
 ```
 
-## 启动前端
+### 前端
 
 ```bash
 cd frontend
