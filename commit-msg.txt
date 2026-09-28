@@ -1,0 +1,18 @@
+新增独立前端项目：Vue 3 + Vite + TypeScript 网页客户端
+
+前后端分离的前端侧：只负责渲染棋盘与收集键盘输入，规则全部来自后端快照。
+
+- src/api/types.ts：与后端 dto 一一对应的类型（一维下标坐标）。
+- src/api/client.ts：所有 REST 调用的封装，把后端返回的 message 直接翻成提示文案。
+- composables/useGame.ts：一局游戏的前端状态，转发移动/撤销/重来/跳关/提示，
+  以及自动演示的逐步播放与中断。
+- components/GameBoard.vue：按 width 把一维下标摊成网格渲染；配对模式给箱子和
+  目标点打同色编号，已就位的箱子显示绿色。
+- components/SaveSlots.vue：8 个存档槽的展示与读/存/删。
+- App.vue：主菜单 / 游戏 / 无尽模式 / 存读档四个界面；方向键与 WASD 操作，
+  U 撤销、R 重来、H 提示、Esc 返回；含上下左右左右上下的跳关作弊。
+- vite.config.ts：把 /api 代理到 8080，前端只写相对路径，不处理跨域。
+
+实测：npm run build 通过（vue-tsc 类型检查 + 打包，产物 77.9KB JS / 5.3KB CSS）；
+新增 scripts/e2e-test.mjs 走前端开发服务器（:5173）的 /api 代理跑完整链路，
+19 项断言全部通过。
