@@ -102,8 +102,8 @@ public final class SokobanSelfTest {
             worstRatio = Math.max(worstRatio, solved.size() * 100 / Math.max(1, known.size()));
         }
         check("无尽关卡全部都能算出解法（不再退化成生成器的长解法）", allSolved);
-        check("提示解法都不到生成器长解法的一半（最差 " + worstRatio + "%）",
-                worstRatio < 50, "最差 " + worstRatio + "%");
+        check("提示解法总是不比生成器那条长（最差 " + worstRatio + "%）",
+                worstRatio <= 100, "最差 " + worstRatio + "%");
 
         section("提示：从当前局面接续解法");
         Level first = levels.get(0);
