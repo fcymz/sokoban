@@ -1,0 +1,14 @@
+# 推箱子（Sokoban）Web 后端配置
+server:
+  port: 8080
+
+spring:
+  application:
+    name: sokoban-web
+  jackson:
+    default-property-inclusion: non_null
+
+logging:
+  level:
+    root: INFO
+    com.ruoyi: INFO

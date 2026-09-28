@@ -1,0 +1,248 @@
+/**
+ * 全局样式：深色主题，配色沿用原来桌面版的风格。
+ */
+:root {
+  color-scheme: dark;
+  font-family: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  --bg: #0b0f1a;
+  --panel: #131829;
+  --line: #232b42;
+  --text: #e7ecf7;
+  --dim: #8c96b2;
+  --accent: #5b8cff;
+  --ok: #4fd1a5;
+  --warn: #ffcf6b;
+  --danger: #ff6b6b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: radial-gradient(circle at 20% 0%, #16203a 0%, var(--bg) 55%);
+  color: var(--text);
+}
+
+.app {
+  max-width: 1040px;
+  margin: 0 auto;
+  padding: 20px 18px 60px;
+}
+
+.topbar {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  flex-wrap: wrap;
+  margin-bottom: 18px;
+}
+
+.topbar h1 {
+  font-size: 1.35rem;
+  margin: 0;
+  letter-spacing: 0.03em;
+}
+
+.backend {
+  color: var(--dim);
+  font-size: 0.8rem;
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.panel h2 {
+  margin: 0;
+  font-size: 1.1rem;
+}
+
+.menu-buttons {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: 300px;
+}
+
+.menu-buttons.row {
+  flex-direction: row;
+  flex-wrap: wrap;
+  max-width: none;
+}
+
+.btn {
+  appearance: none;
+  border: 1px solid var(--line);
+  background: #1b2237;
+  color: var(--text);
+  padding: 10px 16px;
+  border-radius: 10px;
+  font-size: 0.94rem;
+  cursor: pointer;
+  transition: transform 0.06s ease, background 0.15s ease;
+}
+
+.btn:hover:not(:disabled) {
+  background: #212a44;
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.btn.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #0b0f1e;
+  font-weight: 700;
+}
+
+.btn.danger {
+  border-color: #57303a;
+  color: #ffb3b3;
+}
+
+.btn.ghost {
+  background: transparent;
+}
+
+.btn.small {
+  padding: 7px 12px;
+  font-size: 0.85rem;
+}
+
+.controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: center;
+}
+
+.hud {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.hud-left,
+.hud-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.hud-right {
+  margin-left: auto;
+  color: var(--dim);
+  font-size: 0.86rem;
+}
+
+.tag {
+  font-size: 0.74rem;
+  padding: 2px 8px;
+  border-radius: 6px;
+  background: #2a3350;
+  color: #9fb0dd;
+}
+
+.tag.cheat {
+  background: #3d3320;
+  color: var(--warn);
+}
+
+.meta {
+  color: var(--dim);
+  font-size: 0.84rem;
+}
+
+.hint,
+.status,
+.seedline {
+  margin: 0;
+  color: var(--dim);
+  font-size: 0.87rem;
+  line-height: 1.6;
+}
+
+.status {
+  min-height: 1.4em;
+  color: var(--ok);
+}
+
+.seedline code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text);
+  letter-spacing: 0.08em;
+}
+
+.notice {
+  margin: 0;
+  color: var(--warn);
+  font-size: 0.88rem;
+}
+
+.banner {
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-size: 0.92rem;
+}
+
+.banner.ok {
+  background: rgba(79, 209, 165, 0.12);
+  color: var(--ok);
+}
+
+.banner.bad {
+  background: rgba(255, 107, 107, 0.12);
+  color: var(--danger);
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-width: 320px;
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.field input {
+  background: #0f1424;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  padding: 9px 12px;
+  color: var(--text);
+  font-size: 0.95rem;
+  letter-spacing: 0.06em;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+.levels {
+  color: var(--dim);
+  font-size: 0.85rem;
+}
+
+.levels ul {
+  margin: 8px 0 0;
+  padding-left: 18px;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+}
