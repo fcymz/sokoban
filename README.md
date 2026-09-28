@@ -201,13 +201,13 @@ scripts/
 ## 测试
 
 ```powershell
-# 1) 内核自检（248 项断言）
+# 1) 内核自检（241 项断言；这里的 java 也要用 JDK 17）
 .\mvn17.ps1 -DskipTests package
 java -cp target/classes:target/test-classes com.ruoyi.sokoban.SokobanSelfTest
 
-# 2) 后端接口实测（需要后端已启动在 8080）
+# 2) 后端接口实测（42 项断言，需要后端已启动在 8080）
 powershell -ExecutionPolicy Bypass -File scripts\api-test.ps1
 
-# 3) 端到端联调（需要后端 8080 + 前端 5173 都在跑）
+# 3) 端到端联调（21 项断言，需要后端 8080 + 前端 5173 都在跑）
 node scripts\e2e-test.mjs
 ```
