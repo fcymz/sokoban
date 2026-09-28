@@ -155,15 +155,14 @@ npm run build          # 产出 frontend/dist，是纯静态文件
 | POST | `/api/game/sessions/{id}/level` | 跳关 `{"index":2}` 或 `{"delta":1}` |
 | POST | `/api/game/sessions/{id}/endless-skip` | 开关跳关作弊 |
 | POST | `/api/game/sessions/{id}/hint` | 求一条解法（自动演示用） |
-| GET | `/api/levels` | 内置关卡列表（含每关最佳步数） |
-| GET | `/api/scores` | 成绩榜（每关最佳步数） |
+| GET | `/api/levels` | 内置关卡列表 |
 | GET | `/api/saves` | 存档槽列表 |
 | POST | `/api/saves/{slot}/from/{id}` | 把当前局面存入某槽 |
 | POST | `/api/saves/{slot}/load` | 读档（返回新会话） |
 | DELETE | `/api/saves/{slot}` | 删除某槽 |
 
 错误响应统一为 `{"error": 状态码, "message": "给玩家看的说明"}`：
-会话不存在 → 404，关卡未解锁 → 403，参数不合法 → 400。
+会话不存在 / 路径不存在 → 404，关卡未解锁 → 403，参数不合法 → 400。
 
 ## 代码结构
 
@@ -182,7 +181,6 @@ src/main/java/com/ruoyi/
     GameSessionService.java       会话与存档编排，规则判定集中在这里
     GameController.java           /api/game/**
     LevelController.java          /api/levels、/api/saves
-    ScoreController.java          /api/scores（成绩榜）
     GameMapper.java + dto/        内核对象 → 前端 DTO
     WebConfig.java                CORS
     ApiExceptionHandler.java      统一错误响应

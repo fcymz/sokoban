@@ -284,35 +284,3 @@ body {
   gap: 4px;
   grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
 }
-
-/* 成绩榜：最佳步数用强调色，和关卡列表区分开 */
-.levels .best {
-  color: var(--ok);
-  font-size: 0.82rem;
-  margin-left: 6px;
-}
-
-.scoreboard table {
-  width: 100%;
-  margin-top: 8px;
-  border-collapse: collapse;
-}
-
-.scoreboard th,
-.scoreboard td {
-  padding: 5px 10px;
-  text-align: left;
-  border-bottom: 1px solid var(--line);
-}
-
-.scoreboard th {
-  color: var(--dim);
-  font-weight: 600;
-  font-size: 0.8rem;
-}
-
-.scoreboard td.best {
-  color: var(--ok);
-  margin-left: 0;
-  font-variant-numeric: tabular-nums;
-}
