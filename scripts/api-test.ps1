@@ -1,32 +1,41 @@
 $ErrorActionPreference = 'Continue'
-$base = 'http://127.0.0.1:18080'
+# 后端地址：脚本的第一个参数可以覆盖，默认 8080
+$base = if ($args.Count -ge 1 -and $args[0]) { $args[0] } else { 'http://127.0.0.1:8080' }
 $script:failed = 0
 
 $tmp = Join-Path $env:TEMP 'sokoban-api-body.json'
+function Write-Body {
+    param([string]$Json)
+    [System.IO.File]::WriteAllText($tmp, $Json, (New-Object System.Text.UTF8Encoding($false)))
+    return "@$tmp"
+}
+# 注意：这里必须返回「字符串」而不是字符串数组，
+# 否则调用方写 `... | ConvertFrom-Json` 会报 Invalid JSON primitive。
 function Invoke-Api {
     param([string]$Method, [string]$Path, [string]$Json)
     $curlArgs = @('-sS', '--max-time', '30', '-X', $Method, "$base$Path",
                   '-H', 'Content-Type: application/json')
     if ($Json) {
-        [System.IO.File]::WriteAllText($tmp, $Json, (New-Object System.Text.UTF8Encoding($false)))
-        $curlArgs += @('--data-binary', "@$tmp")
+        $curlArgs += @('--data-binary', (Write-Body $Json))
     }
-    return ((& curl.exe @curlArgs 2>&1) -join "`n")
+    $raw = & curl.exe @curlArgs 2>&1
+    return ([string]::Join("`n", [string[]]$raw)).Trim()
 }
 function Get-Code {
     param([string]$Method, [string]$Path, [string]$Json)
     $curlArgs = @('-sS', '--max-time', '30', '-o', 'NUL', '-w', '%{http_code}',
                   '-X', $Method, "$base$Path", '-H', 'Content-Type: application/json')
     if ($Json) {
-        [System.IO.File]::WriteAllText($tmp, $Json, (New-Object System.Text.UTF8Encoding($false)))
-        $curlArgs += @('--data-binary', "@$tmp")
+        $curlArgs += @('--data-binary', (Write-Body $Json))
     }
-    return ("$((& curl.exe @curlArgs 2>&1) -join '')").Trim()
+    $raw = & curl.exe @curlArgs 2>&1
+    return ([string]::Join('', [string[]]$raw)).Trim()
 }
 function Check($name, $cond, $detail) {
     if ($cond) { Write-Output "  [OK]   $name" }
     else { Write-Output "  [FAIL] $name -- $detail"; $script:failed++ }
 }
+
 
 $BODY_RIGHT = '{"dir":"RIGHT"}'
 $BODY_UP = '{"dir":"UP"}'
