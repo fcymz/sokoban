@@ -12,9 +12,9 @@
     </parent>
 
     <groupId>com.ruoyi</groupId>
-    <artifactId>test</artifactId>
+    <artifactId>sokoban</artifactId>
     <version>1.0-SNAPSHOT</version>
-    <name>sokoban-web</name>
+    <name>sokoban</name>
     <description>推箱子（Sokoban）：游戏内核 + Spring Boot REST 后端</description>
 
     <properties>
@@ -35,6 +35,8 @@
     </dependencies>
 
     <build>
+        <!-- 固定 jar 名，省得脚本和文档跟着版本号改：产物永远是 target/sokoban.jar -->
+        <finalName>sokoban</finalName>
         <plugins>
             <plugin>
                 <groupId>org.springframework.boot</groupId>

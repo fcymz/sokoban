@@ -34,7 +34,7 @@ New-Item -ItemType Directory -Force -Path $logDir | Out-Null
 
 $backendPort = 8080
 $frontendPort = 5173
-$jarName = 'test-1.0-SNAPSHOT.jar'
+$jarName = 'sokoban.jar'
 $jarPath = Join-Path $root "target\$jarName"
 $frontendDir = Join-Path $root 'frontend'
 $viteEntry = Join-Path $frontendDir 'node_modules\vite\bin\vite.js'

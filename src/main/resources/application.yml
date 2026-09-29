@@ -4,7 +4,7 @@ server:
 
 spring:
   application:
-    name: sokoban-web
+    name: sokoban
   jackson:
     default-property-inclusion: non_null
 
