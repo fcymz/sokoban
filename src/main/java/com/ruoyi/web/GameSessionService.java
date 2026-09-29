@@ -306,16 +306,21 @@ public class GameSessionService {
     /**
      * 把当前局面存进某个槽。
      *
+     * <p>自动存档槽位只由系统写入（无尽模式进入新层、关标签页兜底），不接受手动存档 ——
+     * 否则玩家手动存进去的内容会在下一次自动存档时被悄悄覆盖掉。</p>
+     *
      * @param sessionId 会话编号
      * @param slot      槽位编号
      * @return 存完之后的槽位列表
-     * @throws IllegalArgumentException 槽位编号非法
+     * @throws IllegalArgumentException 槽位编号非法，或想手动存进自动存档槽
      */
     public List<SaveSlotDto> save(String sessionId, int slot) {
         Session session = require(sessionId);
-        if (slot < 0 || slot >= SaveManager.SLOT_COUNT) {
-            throw new IllegalArgumentException("槽位编号必须在 0 ~ "
-                    + (SaveManager.SLOT_COUNT - 1) + " 之间");
+        checkSlot(slot);
+        if (slot == SaveManager.AUTO_SLOT) {
+            throw new IllegalArgumentException("第 " + (SaveManager.AUTO_SLOT + 1)
+                    + " 个槽位是自动存档槽，不能手动存入；"
+                    + "请选其它槽位，或把它「转存到…」别的槽位");
         }
         SokobanGame game = session.game();
         SaveSlot data = SaveSlot.of(slot,
@@ -334,6 +339,78 @@ public class GameSessionService {
     }
 
     /**
+     * 把某个会话的当前局面写进自动存档槽位（不关卡类型）。
+     *
+     * <p>给前端「关标签页兜底」用：玩家确认离开时页面已经要关了，只有 sendBeacon 还能发请求，
+     * 所以单独开一个接口，避免和「不接受手动存档」那条规则打架。</p>
+     *
+     * @param sessionId 会话编号
+     * @return 写完之后（并清掉未存档标记）的槽位列表
+     */
+    public List<SaveSlotDto> autoSave(String sessionId) {
+        Session session = require(sessionId);
+        writeAutoSlot(session);
+        session.markSaved();
+        return listSaves();
+    }
+
+    /**
+     * 把一个槽位的存档转存到另一个槽位。
+     *
+     * <p>主要给自动存档槽用：无尽模式推进时 1 号槽位会被反复覆盖，
+     * 玩家可以在这里把当前这份存到别的槽位长期保留。</p>
+     *
+     * <p>是「复制」而不是「搬走」：自动槽位的内容保持不动（它本来就是随时会被系统覆盖的），
+     * 目标槽位原有的存档会被覆盖。保存时间沿用来源那份，方便看出这份局面是什么时候的。</p>
+     *
+     * @param from 来源槽位
+     * @param to   目标槽位
+     * @return 转存之后的槽位列表
+     * @throws IllegalArgumentException 槽位非法、来源为空，或目标就是自动存档槽
+     */
+    public List<SaveSlotDto> copySave(int from, int to) {
+        checkSlot(from);
+        checkSlot(to);
+        if (to == SaveManager.AUTO_SLOT) {
+            throw new IllegalArgumentException("自动存档槽位只由系统写入，不能作为转存目标");
+        }
+        if (from == to) {
+            throw new IllegalArgumentException("来源和目标不能是同一个槽位");
+        }
+        SaveSlot source = saves.read(from);
+        if (!source.exists()) {
+            throw new IllegalArgumentException("第 " + (from + 1) + " 个槽位还没有存档，"
+                    + "没有可以转存的内容");
+        }
+        SaveSlot copy = SaveSlot.of(to,
+                source.getLevelIndex(),
+                source.getPlayer(),
+                source.getBoxes(),
+                source.getSteps(),
+                source.getPushes(),
+                source.getUnlocked(),
+                source.getSeedBase(),
+                source.getSavedAt());
+        if (!saves.write(to, copy)) {
+            throw new IllegalArgumentException("转存失败：存档目录写不进去");
+        }
+        return listSaves();
+    }
+
+    /**
+     * 校验槽位编号。
+     *
+     * @param slot 槽位编号
+     * @throws IllegalArgumentException 超出范围
+     */
+    private static void checkSlot(int slot) {
+        if (slot < 0 || slot >= SaveManager.SLOT_COUNT) {
+            throw new IllegalArgumentException("槽位编号必须在 0 ~ "
+                    + (SaveManager.SLOT_COUNT - 1) + " 之间");
+        }
+    }
+
+    /**
      * 从某个槽读档，并新建一个会话。
      *
      * @param slot 槽位编号
@@ -341,10 +418,7 @@ public class GameSessionService {
      * @throws IllegalArgumentException 槽位非法或该槽没有存档
      */
     public GameStateDto loadSave(int slot) {
-        if (slot < 0 || slot >= SaveManager.SLOT_COUNT) {
-            throw new IllegalArgumentException("槽位编号必须在 0 ~ "
-                    + (SaveManager.SLOT_COUNT - 1) + " 之间");
-        }
+        checkSlot(slot);
         SaveSlot data = saves.read(slot);
         if (!data.exists()) {
             throw new IllegalArgumentException("第 " + (slot + 1) + " 个槽位还没有存档");
@@ -372,6 +446,7 @@ public class GameSessionService {
      * @return 删除之后的槽位列表
      */
     public List<SaveSlotDto> deleteSave(int slot) {
+        checkSlot(slot);
         saves.delete(slot);
         return listSaves();
     }
@@ -416,22 +491,21 @@ public class GameSessionService {
      */
     private void afterEnterLevel(Session session) {
         session.markSaved();
-        autoSave(session);
+        if (session.game().isEndless()) {
+            writeAutoSlot(session);
+        }
     }
 
     /**
-     * 无尽模式进入新关卡时自动存档。
+     * 把当前局面写进自动存档槽位。
      *
-     * <p>只写自动槽位，且完全容错：磁盘写不进去时只是这一次没存上，
-     * 不影响关卡切换，也不会报错（下一次存档或退出提示会照常出现）。</p>
+     * <p>完全容错：磁盘写不进去时只是这一次没存上，不影响关卡切换也不会报错
+     * （下一次存档或退出提示会照常出现）。</p>
      *
      * @param session 会话
      */
-    private void autoSave(Session session) {
+    private void writeAutoSlot(Session session) {
         SokobanGame game = session.game();
-        if (!game.isEndless()) {
-            return;
-        }
         SaveSlot data = SaveSlot.of(SaveManager.AUTO_SLOT,
                 game.getLevelIndex(),
                 game.getPlayer(),

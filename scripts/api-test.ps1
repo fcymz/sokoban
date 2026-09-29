@@ -137,7 +137,7 @@ $beacon = (Invoke-Api 'POST' '/api/game/sessions' '{}') | ConvertFrom-Json
 $null = Invoke-Api 'POST' "/api/game/sessions/$($beacon.sessionId)/moves" $BODY_RIGHT
 # sendBeacon 发的是空 body + text/plain，这里原样模拟，确认后端照样收得下
 $beaconCode = & curl.exe -s -o NUL -w '%{http_code}' -X POST `
-    "$base/api/saves/0/from/$($beacon.sessionId)" -H 'Content-Type: text/plain;charset=UTF-8'
+    "$base/api/saves/auto/from/$($beacon.sessionId)" -H 'Content-Type: text/plain;charset=UTF-8'
 Check 'sendBeacon 形状的请求返回 200' ("$beaconCode".Trim() -eq '200') "code=$beaconCode"
 $beaconAfter = (Invoke-Api 'GET' "/api/game/sessions/$($beacon.sessionId)" $null) | ConvertFrom-Json
 Check '兜底存档后标记被清掉' ($beaconAfter.unsaved -eq $false) "unsaved=$($beaconAfter.unsaved)"
@@ -146,6 +146,30 @@ $beaconSlot = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
 Check '兜底存档写进了自动槽位' ($beaconSlot.steps -eq 1) "steps=$($beaconSlot.steps)"
 Check '兜底存档记的是当前关卡' ($beaconSlot.levelIndex -eq $beaconAfter.levelIndex) `
     "slot=$($beaconSlot.levelIndex) cur=$($beaconAfter.levelIndex)"
+
+Write-Output '== 自动存档槽：不能手动存入，但可以转存出去 =='
+Check '手动存入自动槽位返回 400' ((Get-Code 'POST' "/api/saves/0/from/$sid" $null) -eq '400')
+$copySrc = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
+    Where-Object { $_.slot -eq 0 }
+$copyList = (Invoke-Api 'POST' '/api/saves/0/copy/6' $null) | ConvertFrom-Json
+$copied = $copyList | Where-Object { $_.slot -eq 6 }
+Check '转存后目标槽位有存档' ($copied.exists -eq $true) "exists=$($copied.exists)"
+Check '转存保留了关卡' ($copied.levelIndex -eq $copySrc.levelIndex) `
+    "to=$($copied.levelIndex) from=$($copySrc.levelIndex)"
+Check '转存保留了步数' ($copied.steps -eq $copySrc.steps) `
+    "to=$($copied.steps) from=$($copySrc.steps)"
+Check '转存保留了种子' ("$($copied.seedCode)" -eq "$($copySrc.seedCode)") `
+    "to=$($copied.seedCode) from=$($copySrc.seedCode)"
+Check '转存保留了保存时间' ($copied.savedAt -eq $copySrc.savedAt) `
+    "to=$($copied.savedAt) from=$($copySrc.savedAt)"
+$copyAfter = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
+    Where-Object { $_.slot -eq 0 }
+Check '转存不会动自动槽位本身' ($copyAfter.steps -eq $copySrc.steps) `
+    "after=$($copyAfter.steps) before=$($copySrc.steps)"
+Check '不能转存到自动槽位' ((Get-Code 'POST' '/api/saves/6/copy/0' $null) -eq '400')
+Check '来源为空时转存返回 400' ((Get-Code 'POST' '/api/saves/7/copy/6' $null) -eq '400')
+Check '来源与目标相同返回 400' ((Get-Code 'POST' '/api/saves/6/copy/6' $null) -eq '400')
+$null = Invoke-Api 'DELETE' '/api/saves/6' $null
 
 Write-Output '== 关卡列表 =='
 $lv = (Invoke-Api 'GET' '/api/levels' $null) | ConvertFrom-Json
