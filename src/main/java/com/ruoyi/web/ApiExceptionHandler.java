@@ -2,9 +2,11 @@ package com.ruoyi.web;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.HttpRequestMethodNotSupportedException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -56,6 +58,28 @@ public class ApiExceptionHandler {
     @ExceptionHandler(IllegalArgumentException.class)
     public ResponseEntity<Map<String, Object>> onBadRequest(IllegalArgumentException e) {
         return build(HttpStatus.BAD_REQUEST, e.getMessage());
+    }
+
+    /**
+     * 请求体不是合法 JSON。
+     *
+     * @param e 异常
+     * @return 400 + 说明
+     */
+    @ExceptionHandler(HttpMessageNotReadableException.class)
+    public ResponseEntity<Map<String, Object>> onUnreadableBody(HttpMessageNotReadableException e) {
+        return build(HttpStatus.BAD_REQUEST, "请求体不是合法的 JSON");
+    }
+
+    /**
+     * 路径/查询参数类型不对（例如槽位编号写了非数字）。
+     *
+     * @param e 异常
+     * @return 400 + 说明
+     */
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    public ResponseEntity<Map<String, Object>> onTypeMismatch(MethodArgumentTypeMismatchException e) {
+        return build(HttpStatus.BAD_REQUEST, "参数 " + e.getName() + " 的类型不对：" + e.getValue());
     }
 
     /**
