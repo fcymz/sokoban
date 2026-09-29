@@ -227,16 +227,21 @@ async function onDeleteSlot(slot: number) {
   }
 }
 
-/** 把某个槽位的存档转存到另一个槽位（目前只有自动存档槽会用到）。 */
-async function onCopySlot(from: number, to: number) {
+/**
+ * 把某个槽位的存档转存到另一个槽位（目前只有自动存档槽会用到）。
+ *
+ * 是「搬走」：成功之后来源槽位会被清空。
+ */
+async function onMoveSlot(from: number, to: number) {
   const target = slots.value.find((s) => s.slot === to)
   if (target?.exists
     && !window.confirm(`第 ${to + 1} 个槽位已有存档，覆盖它吗？`)) {
     return
   }
   try {
-    slots.value = await api.copySlot(from, to)
-    notice.value = `已把第 ${from + 1} 个存档转存到第 ${to + 1} 个存档`
+    slots.value = await api.moveSlot(from, to)
+    notice.value = `已把第 ${from + 1} 个存档转存到第 ${to + 1} 个存档，`
+      + `第 ${from + 1} 个槽位已清空`
   } catch (e) {
     notice.value = e instanceof Error ? e.message : String(e)
   }
@@ -458,7 +463,7 @@ function toggleSeed() {
         @load="onLoadSlot"
         @save="onSaveSlot"
         @delete="onDeleteSlot"
-        @copy="onCopySlot"
+        @move="onMoveSlot"
       />
       <p v-if="notice" class="notice">{{ notice }}</p>
     </section>

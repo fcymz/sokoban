@@ -355,20 +355,23 @@ public class GameSessionService {
     }
 
     /**
-     * 把一个槽位的存档转存到另一个槽位。
+     * 把一个槽位的存档转存到另一个槽位，**转存成功后清空来源槽位**。
      *
      * <p>主要给自动存档槽用：无尽模式推进时 1 号槽位会被反复覆盖，
-     * 玩家可以在这里把当前这份存到别的槽位长期保留。</p>
+     * 玩家可以在这里把当前这份搬到别的槽位长期保留。</p>
      *
-     * <p>是「复制」而不是「搬走」：自动槽位的内容保持不动（它本来就是随时会被系统覆盖的），
-     * 目标槽位原有的存档会被覆盖。保存时间沿用来源那份，方便看出这份局面是什么时候的。</p>
+     * <p>是「搬走」而不是「复制」：来源槽位会被清空，搬完不要指望它还在原地。
+     * 目标槽位原有的存档会被覆盖；保存时间沿用来源那份，方便看出这份局面是什么时候的。</p>
+     *
+     * <p>顺序是先写目标、写成功再删来源：万一写到一半失败，最多两边都留着一份，
+     * 不会出现两边都没有的情况。</p>
      *
      * @param from 来源槽位
      * @param to   目标槽位
      * @return 转存之后的槽位列表
      * @throws IllegalArgumentException 槽位非法、来源为空，或目标就是自动存档槽
      */
-    public List<SaveSlotDto> copySave(int from, int to) {
+    public List<SaveSlotDto> moveSave(int from, int to) {
         checkSlot(from);
         checkSlot(to);
         if (to == SaveManager.AUTO_SLOT) {
@@ -394,6 +397,8 @@ public class GameSessionService {
         if (!saves.write(to, copy)) {
             throw new IllegalArgumentException("转存失败：存档目录写不进去");
         }
+        // 目标已经写好了，这时才清空来源
+        saves.delete(from);
         return listSaves();
     }
 

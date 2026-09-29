@@ -23,7 +23,7 @@ const emit = defineEmits<{
   (e: 'load', slot: number): void
   (e: 'save', slot: number): void
   (e: 'delete', slot: number): void
-  (e: 'copy', from: number, to: number): void
+  (e: 'move', from: number, to: number): void
 }>()
 
 /** 正在把哪个槽位的存档转存出去；null 表示不在转存模式。 */
@@ -39,7 +39,7 @@ function confirmTransfer(to: number) {
     return
   }
   transferringFrom.value = null
-  emit('copy', from, to)
+  emit('move', from, to)
 }
 
 function formatTime(savedAt: number): string {
@@ -89,7 +89,7 @@ function formatTime(savedAt: number): string {
             {{ loadLabel ?? '读取' }}
           </button>
           <!-- 自动存档槽不接受手动存档，否则会被下一次自动存档悄悄覆盖 -->
-          <span v-if="slot.slot === AUTO_SLOT" class="hint-inline">自动存档，不手动存</span>
+          <span v-if="slot.slot === AUTO_SLOT" class="hint-inline">不能存入自动栏位</span>
           <button v-else class="btn small" :disabled="!canSave" @click="emit('save', slot.slot)">
             存入此档
           </button>
