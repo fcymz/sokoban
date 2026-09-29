@@ -184,7 +184,7 @@ IDE 里只要把 Project SDK 设成 JDK 17 即可（`.idea/misc.xml` 已经指�
 
 # 或者先打包再运行
 .\mvn17.ps1 -DskipTests package
-java -jar target/test-1.0-SNAPSHOT.jar
+java -jar target/sokoban.jar
 ```
 
 前端：
@@ -202,7 +202,7 @@ npm run dev          # http://localhost:5173
 
 ```powershell
 # 后端：产出可执行 jar
-.\mvn17.ps1 -DskipTests package      # -> target/test-1.0-SNAPSHOT.jar
+.\mvn17.ps1 -DskipTests package      # -> target/sokoban.jar
 
 # 前端：产出纯静态文件
 cd frontend

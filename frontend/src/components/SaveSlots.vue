@@ -89,7 +89,7 @@ function formatTime(savedAt: number): string {
             {{ loadLabel ?? '读取' }}
           </button>
           <!-- 自动存档槽不接受手动存档，否则会被下一次自动存档悄悄覆盖 -->
-          <span v-if="slot.slot === AUTO_SLOT" class="hint-inline">不能存入自动栏位</span>
+          <span v-if="slot.slot === AUTO_SLOT" class="hint-inline">不能存入自动槽位</span>
           <button v-else class="btn small" :disabled="!canSave" @click="emit('save', slot.slot)">
             存入此档
           </button>
