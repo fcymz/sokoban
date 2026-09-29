@@ -31,9 +31,11 @@ public final class GameMapper {
      * @param sessionId 会话编号
      * @param game      游戏
      * @param campaign  关卡来源（用于取标题、进度、种子码）
+     * @param unsaved   当前局面是否有改动还没存进任何槽位
      * @return 快照
      */
-    public static GameStateDto toState(String sessionId, SokobanGame game, Campaign campaign) {
+    public static GameStateDto toState(String sessionId, SokobanGame game, Campaign campaign,
+                                       boolean unsaved) {
         int[] rawBoxes = game.getBoxes();
         List<Integer> boxes = new ArrayList<>(rawBoxes.length);
         List<Integer> boxLabels = new ArrayList<>(rawBoxes.length);
@@ -64,6 +66,7 @@ public final class GameMapper {
                 game.getMaxUnlockedLevel(),
                 game.canAdvance(),
                 game.isEndlessSkipUnlocked(),
+                unsaved,
                 campaign.getSeedCode());
     }
 

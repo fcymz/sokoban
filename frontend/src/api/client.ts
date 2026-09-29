@@ -56,6 +56,11 @@ export function createSession(seedCode?: string, endless = false): Promise<GameS
   })
 }
 
+/** 读取当前局面（存完档后用它刷新后端的「有未存档改动」标记）。 */
+export function getSession(sessionId: string): Promise<GameState> {
+  return request<GameState>(`/game/sessions/${sessionId}`)
+}
+
 /** 走一步。 */
 export function move(sessionId: string, dir: Direction): Promise<GameState> {
   return request<GameState>(`/game/sessions/${sessionId}/moves`, {

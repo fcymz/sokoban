@@ -49,10 +49,19 @@ public class GameSessionService {
         this.saveData = saveData;
     }
 
-    /** 一个会话：游戏状态 + 它的关卡来源。 */
+    /** 一个会话：游戏状态 + 它的关卡来源 + “有没有改动没存档”的标记。 */
     private static final class Session {
         private final SokobanGame game;
         private final Campaign campaign;
+
+        /**
+         * 当前局面是否有改动还没存进任何槽位。
+         *
+         * <p>初始为 {@code false}：刚开的局、刚载入的关卡都是“干净的”，
+         * 玩家此时退出不应该被问“要不要存档”。一旦推了箱子（或撤销、重来、被提示强制重来）
+         * 就置为 {@code true}；存进任意一个槽位（含无尽模式的自动存档）之后置回 {@code false}。</p>
+         */
+        private boolean unsaved;
 
         Session(SokobanGame game, Campaign campaign) {
             this.game = game;
@@ -65,6 +74,20 @@ public class GameSessionService {
 
         Campaign campaign() {
             return campaign;
+        }
+
+        boolean isUnsaved() {
+            return unsaved;
+        }
+
+        /** 棋盘有改动，标记为“有未存档的进度”。 */
+        void markUnsaved() {
+            unsaved = true;
+        }
+
+        /** 当前局面已经落盘（或本来就是干净的），标记为“无未存档的进度”。 */
+        void markSaved() {
+            unsaved = false;
         }
     }
 
@@ -80,16 +103,18 @@ public class GameSessionService {
     public GameStateDto createSession(String seedCode, boolean endless) {
         Campaign campaign = buildCampaign(seedCode);
         SokobanGame game = new SokobanGame(campaign);
-        // 把历史最好成绩里记录的解锁进度带进来
+        // 把存档里记录的解锁进度带进来
         game.setMaxUnlockedLevel(saveData.getMaxUnlockedLevel());
+        Session session = new Session(game, campaign);
         if (endless) {
             int target = campaign.getBuiltInCount();
             game.setMaxUnlockedLevel(Math.max(game.getMaxUnlockedLevel(), target));
             game.loadLevel(target);
+            afterEnterLevel(session);
         }
         String id = UUID.randomUUID().toString();
-        sessions.put(id, new Session(game, campaign));
-        return stateOf(id, new Session(game, campaign));
+        sessions.put(id, session);
+        return stateOf(id, session);
     }
 
     /**
@@ -142,8 +167,11 @@ public class GameSessionService {
         Session session = require(sessionId);
         SokobanGame.Dir dir = parseDir(dirName);
         boolean moved = session.game().move(dir);
-        if (moved && session.game().isWon()) {
-            recordWin(session);
+        if (moved) {
+            session.markUnsaved();
+            if (session.game().isWon()) {
+                recordWin(session);
+            }
         }
         return stateOf(sessionId, session);
     }
@@ -156,7 +184,9 @@ public class GameSessionService {
      */
     public GameStateDto undo(String sessionId) {
         Session session = require(sessionId);
-        session.game().undo();
+        if (session.game().undo()) {
+            session.markUnsaved();
+        }
         return stateOf(sessionId, session);
     }
 
@@ -168,7 +198,12 @@ public class GameSessionService {
      */
     public GameStateDto reset(String sessionId) {
         Session session = require(sessionId);
+        // 一步没走过就重来，棋盘没有变化，不算“有未存档的进度”
+        boolean hadProgress = session.game().getSteps() > 0;
         session.game().reset();
+        if (hadProgress) {
+            session.markUnsaved();
+        }
         return stateOf(sessionId, session);
     }
 
@@ -185,6 +220,7 @@ public class GameSessionService {
         if (!session.game().loadLevel(index)) {
             throw new LevelLockedException(index);
         }
+        afterEnterLevel(session);
         return stateOf(sessionId, session);
     }
 
@@ -201,6 +237,7 @@ public class GameSessionService {
         if (!session.game().changeLevel(delta)) {
             throw new LevelLockedException(session.game().getLevelIndex() + delta);
         }
+        afterEnterLevel(session);
         return stateOf(sessionId, session);
     }
 
@@ -239,6 +276,7 @@ public class GameSessionService {
         if (matched < 0) {
             // 玩家已经偏离解法：从关卡开头完整演示
             game.reset();
+            session.markUnsaved();
             return new HintResult(names(solution), solution.size(),
                     "当前局面已偏离解法，已重来并完整演示");
         }
@@ -289,7 +327,9 @@ public class GameSessionService {
                 game.getMaxUnlockedLevel(),
                 session.campaign().getSeedBase(),
                 System.currentTimeMillis());
-        saves.write(slot, data);
+        if (saves.write(slot, data)) {
+            session.markSaved();
+        }
         return listSaves();
     }
 
@@ -318,8 +358,11 @@ public class GameSessionService {
             game.loadLevel(data.getLevelIndex());
         }
         String id = UUID.randomUUID().toString();
-        sessions.put(id, new Session(game, campaign));
-        return stateOf(id, new Session(game, campaign));
+        Session session = new Session(game, campaign);
+        // 当前局面就是槽位里那一份，所以不算“有未存档的进度”
+        session.markSaved();
+        sessions.put(id, session);
+        return stateOf(id, session);
     }
 
     /**
@@ -359,7 +402,46 @@ public class GameSessionService {
      * @return 快照
      */
     private GameStateDto stateOf(String sessionId, Session session) {
-        return GameMapper.toState(sessionId, session.game(), session.campaign());
+        return GameMapper.toState(sessionId, session.game(), session.campaign(),
+                session.isUnsaved());
+    }
+
+    /**
+     * 进入一个新关卡之后要做的事。
+     *
+     * <p>新关卡的棋盘是干净的（步数为 0、没有历史），所以先清掉“有未存档的进度”标记；
+     * 无尽模式再顺手把这一层自动存进自动槽位，这样玩家推进无尽层数时进度天然是存过的。</p>
+     *
+     * @param session 会话
+     */
+    private void afterEnterLevel(Session session) {
+        session.markSaved();
+        autoSave(session);
+    }
+
+    /**
+     * 无尽模式进入新关卡时自动存档。
+     *
+     * <p>只写自动槽位，且完全容错：磁盘写不进去时只是这一次没存上，
+     * 不影响关卡切换，也不会报错（下一次存档或退出提示会照常出现）。</p>
+     *
+     * @param session 会话
+     */
+    private void autoSave(Session session) {
+        SokobanGame game = session.game();
+        if (!game.isEndless()) {
+            return;
+        }
+        SaveSlot data = SaveSlot.of(SaveManager.AUTO_SLOT,
+                game.getLevelIndex(),
+                game.getPlayer(),
+                game.getBoxes(),
+                game.getSteps(),
+                game.getPushes(),
+                game.getMaxUnlockedLevel(),
+                session.campaign().getSeedBase(),
+                System.currentTimeMillis());
+        saves.write(SaveManager.AUTO_SLOT, data);
     }
 
     private Campaign buildCampaign(String seedCode) {

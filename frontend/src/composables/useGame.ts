@@ -45,12 +45,19 @@ export function useGame() {
     state.value = next
   }
 
+  /** 进入新关卡后的提示：无尽模式每次进新层都会自动存进 1 号槽位。 */
+  function levelMessage(next: GameState): string {
+    return next.endless ? `${next.level.title}（已自动存档）` : next.level.title
+  }
+
   /** 新的开始（可带种子；可选直接从无尽第 1 层开始）。 */
   async function startNew(seedCode?: string, fromEndless = false) {
     const next = await run(() => api.createSession(seedCode, fromEndless))
     if (next) {
       apply(next)
-      setMessage(fromEndless ? `已从无尽第 1 层开始（种子 ${next.seedCode}）` : '新的开始')
+      setMessage(fromEndless
+        ? `已从无尽第 1 层开始（种子 ${next.seedCode}，已自动存档）`
+        : '新的开始')
     }
   }
 
@@ -105,7 +112,7 @@ export function useGame() {
     if (next) {
       apply(next)
       hintPlan.value = []
-      setMessage(next.level.title)
+      setMessage(levelMessage(next))
     }
   }
 
@@ -118,7 +125,7 @@ export function useGame() {
     if (next) {
       apply(next)
       hintPlan.value = []
-      setMessage(next.level.title)
+      setMessage(levelMessage(next))
     }
   }
 
@@ -221,6 +228,23 @@ export function useGame() {
     message.value = ''
   }
 
+  /**
+   * 重新拉一次当前局面。
+   *
+   * 用于「后端的状态标志变了，但棋盘没变」的场景 —— 目前只有手动存档之后：
+   * 后端会把「有未存档的改动」标记清掉，前端得跟着更新，否则退出时还会多问一句。
+   */
+  async function refresh() {
+    const id = state.value?.sessionId
+    if (!id) {
+      return
+    }
+    const next = await run(() => api.getSession(id))
+    if (next) {
+      apply(next)
+    }
+  }
+
   return {
     state,
     message,
@@ -240,5 +264,6 @@ export function useGame() {
     stopAutoPlay,
     loadFromSlot,
     clear,
+    refresh,
   }
 }

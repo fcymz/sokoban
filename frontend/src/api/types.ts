@@ -46,6 +46,8 @@ export interface GameState {
   maxUnlocked: number
   canAdvance: boolean
   endlessSkip: boolean
+  /** 当前局面是否有改动还没存进任何槽位；退出时要不要提示玩家以它为准 */
+  unsaved: boolean
   seedCode: string
 }
 

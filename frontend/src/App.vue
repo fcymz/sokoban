@@ -133,10 +133,16 @@ watch(
   },
 )
 
-/** 当前会话里“这一局有没有改动过还没存”。 */
+/**
+ * 这一局有没有「改动过但还没存」的进度。
+ *
+ * 完全以后端快照里的 `unsaved` 为准：手动存档（任意槽位）与无尽模式的自动存档
+ * 都会把它清掉，所以刚存完档再退出不会再问一遍。已经通关的关卡不再提示 ——
+ * 通关进度（解锁层数）此时已经落盘，棋盘上的局面也没什么可挽留的。
+ */
 function hasUnsavedProgress(): boolean {
   const s = game.state.value
-  return Boolean(s && !s.won && s.steps > 0)
+  return Boolean(s && !s.won && s.unsaved)
 }
 
 async function startNew() {
@@ -200,6 +206,8 @@ async function onSaveSlot(slot: number) {
   }
   try {
     slots.value = await api.saveToSlot(id, slot)
+    // 后端已经把这一局的「有未存档的改动」标记清掉了，同步过来
+    await game.refresh()
     notice.value = `已存入第 ${slot + 1} 个存档`
   } catch (e) {
     notice.value = e instanceof Error ? e.message : String(e)
@@ -371,8 +379,8 @@ function toggleSeed() {
         </button>
       </div>
       <p class="hint">
-        共 8 个槽位，槽位 1 是自动存档槽。保存的是「当前局面」的玩家与箱子位置，
-        读档可以接着玩，而不是回到关卡开头。
+        共 8 个槽位，槽位 1 是自动存档槽：无尽模式每次进入新关卡都会自动存进去。
+        保存的是「当前局面」的玩家与箱子位置，读档可以接着玩，而不是回到关卡开头。
       </p>
       <SaveSlots
         :slots="slots"
