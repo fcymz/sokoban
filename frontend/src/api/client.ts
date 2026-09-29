@@ -133,9 +133,9 @@ export function autoSaveUrl(sessionId: string): string {
   return `${BASE}/saves/auto/from/${sessionId}`
 }
 
-/** 把一个槽位的存档转存到另一个槽位（自动存档槽靠它搬出去）。 */
-export function copySlot(from: number, to: number): Promise<SaveSlot[]> {
-  return request<SaveSlot[]>(`/saves/${from}/copy/${to}`, { method: 'POST' })
+/** 把一个槽位的存档转存到另一个槽位（转存完来源槽位会被清空）。 */
+export function moveSlot(from: number, to: number): Promise<SaveSlot[]> {
+  return request<SaveSlot[]>(`/saves/${from}/move/${to}`, { method: 'POST' })
 }
 
 /** 读档：用某个槽新建一个会话。 */

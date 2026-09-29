@@ -133,18 +133,20 @@ const main = async () => {
     autoSlot.levelIndex === autoEndless.levelIndex,
     `slot=${autoSlot.levelIndex} cur=${autoEndless.levelIndex}`)
 
-  console.log('== 自动存档槽不能手动存入，但可以转存出去 ==')
+  console.log('== 自动存档槽不能手动存入，转存出去之后自己会被清空 ==')
   const denied = await call('POST', `/api/saves/0/from/${fresh.sessionId}`)
   check('手动存入自动槽位被拒（400）', denied.status === 400, `status=${denied.status}`)
-  const copied = await call('POST', '/api/saves/0/copy/7')
-  check('可以把自动存档转存到别的槽位', copied.status === 200, `status=${copied.status}`)
-  const copyAt7 = (copied.data ?? []).find((s) => s.slot === 7)
+  const movedOut = await call('POST', '/api/saves/0/move/7')
+  check('可以把自动存档转存到别的槽位', movedOut.status === 200, `status=${movedOut.status}`)
+  const movedTo7 = (movedOut.data ?? []).find((s) => s.slot === 7)
   check('转存到槽位 8 的内容与自动存档一致',
-    Boolean(copyAt7) && copyAt7.exists === true
-    && copyAt7.levelIndex === autoSlot.levelIndex
-    && copyAt7.steps === autoSlot.steps,
-    `slot8=${copyAt7?.levelIndex}/${copyAt7?.steps} 自动=${autoSlot.levelIndex}/${autoSlot.steps}`)
-  const toAuto = await call('POST', '/api/saves/7/copy/0')
+    Boolean(movedTo7) && movedTo7.exists === true
+    && movedTo7.levelIndex === autoSlot.levelIndex
+    && movedTo7.steps === autoSlot.steps,
+    `slot8=${movedTo7?.levelIndex}/${movedTo7?.steps} 自动=${autoSlot.levelIndex}/${autoSlot.steps}`)
+  const emptied = (movedOut.data ?? []).find((s) => s.slot === 0)
+  check('转存后自动槽位被清空', emptied.exists === false, `exists=${emptied.exists}`)
+  const toAuto = await call('POST', '/api/saves/7/move/0')
   check('不能转存回自动槽位（400）', toAuto.status === 400, `status=${toAuto.status}`)
   await call('DELETE', '/api/saves/7')
 

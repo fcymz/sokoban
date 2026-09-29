@@ -147,28 +147,32 @@ Check '兜底存档写进了自动槽位' ($beaconSlot.steps -eq 1) "steps=$($be
 Check '兜底存档记的是当前关卡' ($beaconSlot.levelIndex -eq $beaconAfter.levelIndex) `
     "slot=$($beaconSlot.levelIndex) cur=$($beaconAfter.levelIndex)"
 
-Write-Output '== 自动存档槽：不能手动存入，但可以转存出去 =='
+Write-Output '== 自动存档槽：不能手动存入，转存出去之后自己会被清空 =='
 Check '手动存入自动槽位返回 400' ((Get-Code 'POST' "/api/saves/0/from/$sid" $null) -eq '400')
-$copySrc = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
+$moveSrc = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
     Where-Object { $_.slot -eq 0 }
-$copyList = (Invoke-Api 'POST' '/api/saves/0/copy/6' $null) | ConvertFrom-Json
-$copied = $copyList | Where-Object { $_.slot -eq 6 }
-Check '转存后目标槽位有存档' ($copied.exists -eq $true) "exists=$($copied.exists)"
-Check '转存保留了关卡' ($copied.levelIndex -eq $copySrc.levelIndex) `
-    "to=$($copied.levelIndex) from=$($copySrc.levelIndex)"
-Check '转存保留了步数' ($copied.steps -eq $copySrc.steps) `
-    "to=$($copied.steps) from=$($copySrc.steps)"
-Check '转存保留了种子' ("$($copied.seedCode)" -eq "$($copySrc.seedCode)") `
-    "to=$($copied.seedCode) from=$($copySrc.seedCode)"
-Check '转存保留了保存时间' ($copied.savedAt -eq $copySrc.savedAt) `
-    "to=$($copied.savedAt) from=$($copySrc.savedAt)"
-$copyAfter = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
+Check '自动槽位此时有内容' ($moveSrc.exists -eq $true) "exists=$($moveSrc.exists)"
+$moveList = (Invoke-Api 'POST' '/api/saves/0/move/6' $null) | ConvertFrom-Json
+$moved = $moveList | Where-Object { $_.slot -eq 6 }
+Check '转存后目标槽位有存档' ($moved.exists -eq $true) "exists=$($moved.exists)"
+Check '转存保留了关卡' ($moved.levelIndex -eq $moveSrc.levelIndex) `
+    "to=$($moved.levelIndex) from=$($moveSrc.levelIndex)"
+Check '转存保留了步数' ($moved.steps -eq $moveSrc.steps) `
+    "to=$($moved.steps) from=$($moveSrc.steps)"
+Check '转存保留了种子' ("$($moved.seedCode)" -eq "$($moveSrc.seedCode)") `
+    "to=$($moved.seedCode) from=$($moveSrc.seedCode)"
+Check '转存保留了保存时间' ($moved.savedAt -eq $moveSrc.savedAt) `
+    "to=$($moved.savedAt) from=$($moveSrc.savedAt)"
+$movedFrom = $moveList | Where-Object { $_.slot -eq 0 }
+Check '转存后自动槽位被清空' ($movedFrom.exists -eq $false) "exists=$($movedFrom.exists)"
+Check '不能转存到自动槽位' ((Get-Code 'POST' '/api/saves/6/move/0' $null) -eq '400')
+Check '来源为空时转存返回 400' ((Get-Code 'POST' '/api/saves/7/move/6' $null) -eq '400')
+Check '来源与目标相同返回 400' ((Get-Code 'POST' '/api/saves/6/move/6' $null) -eq '400')
+# 清空之后系统还应该能照常写回去
+$null = Invoke-Api 'POST' '/api/game/sessions' $BODY_SEED
+$refilled = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
     Where-Object { $_.slot -eq 0 }
-Check '转存不会动自动槽位本身' ($copyAfter.steps -eq $copySrc.steps) `
-    "after=$($copyAfter.steps) before=$($copySrc.steps)"
-Check '不能转存到自动槽位' ((Get-Code 'POST' '/api/saves/6/copy/0' $null) -eq '400')
-Check '来源为空时转存返回 400' ((Get-Code 'POST' '/api/saves/7/copy/6' $null) -eq '400')
-Check '来源与目标相同返回 400' ((Get-Code 'POST' '/api/saves/6/copy/6' $null) -eq '400')
+Check '自动槽位清空后还能被系统重新写入' ($refilled.exists -eq $true) "exists=$($refilled.exists)"
 $null = Invoke-Api 'DELETE' '/api/saves/6' $null
 
 Write-Output '== 关卡列表 =='

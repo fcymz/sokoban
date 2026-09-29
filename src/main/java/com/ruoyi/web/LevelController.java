@@ -72,15 +72,15 @@ public class LevelController {
     }
 
     /**
-     * 把一个槽位的存档转存到另一个槽位（自动存档槽靠它搬出去）。
+     * 把一个槽位的存档转存到另一个槽位，转存成功后来源槽位被清空。
      *
      * @param from 来源槽位
      * @param to   目标槽位
      * @return 转存之后的槽位列表
      */
-    @PostMapping("/saves/{from}/copy/{to}")
-    public List<SaveSlotDto> copy(@PathVariable int from, @PathVariable int to) {
-        return service.copySave(from, to);
+    @PostMapping("/saves/{from}/move/{to}")
+    public List<SaveSlotDto> move(@PathVariable int from, @PathVariable int to) {
+        return service.moveSave(from, to);
     }
 
     /**
