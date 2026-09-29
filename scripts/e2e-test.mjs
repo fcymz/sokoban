@@ -1,6 +1,24 @@
 // 端到端联调测试：完全走前端开发服务器（Vite :5173）的 /api 代理，
 // 也就是浏览器里真实发生的请求路径，验证整条链路而不是只测后端。
+import { existsSync, cpSync, rmSync } from 'node:fs'
+import { homedir, tmpdir } from 'node:os'
+import { join } from 'node:path'
+
 const BASE = 'http://127.0.0.1:5173'
+
+// 这个测试会真的占用存档槽位（无尽模式会自动写自动槽位），
+// 所以先把整个存档目录备份起来，跑完原样还原 —— 测试不能冲掉玩家自己的存档。
+const saveDir = join(homedir(), '.sokoban-saves')
+const saveBackup = join(tmpdir(), 'sokoban-saves-backup-e2e')
+const hadSaveDir = existsSync(saveDir)
+if (existsSync(saveBackup)) rmSync(saveBackup, { recursive: true, force: true })
+if (hadSaveDir) cpSync(saveDir, saveBackup, { recursive: true })
+
+function restoreSaves() {
+  if (existsSync(saveDir)) rmSync(saveDir, { recursive: true, force: true })
+  if (hadSaveDir) cpSync(saveBackup, saveDir, { recursive: true })
+  if (existsSync(saveBackup)) rmSync(saveBackup, { recursive: true, force: true })
+}
 
 let failed = 0
 function check(name, cond, detail) {
@@ -95,12 +113,34 @@ const main = async () => {
   const anyState = (await call('GET', `/api/game/sessions/${sid}`)).data
   check('对局快照不再带最佳步数', !('bestSteps' in anyState), 'bestSteps 仍在快照里')
 
+  console.log('== 未存档标记：退出时要不要提示就看它 ==')
+  const fresh = (await call('POST', '/api/game/sessions', {})).data
+  check('刚开的局是干净的', fresh.unsaved === false, `unsaved=${fresh.unsaved}`)
+  const freshMoved = (await call('POST', `/api/game/sessions/${fresh.sessionId}/moves`,
+    { dir: 'RIGHT' })).data
+  check('走一步后变成有未存档改动', freshMoved.unsaved === true,
+    `unsaved=${freshMoved.unsaved}`)
+  await call('POST', `/api/saves/6/from/${fresh.sessionId}`)
+  const afterSave = (await call('GET', `/api/game/sessions/${fresh.sessionId}`)).data
+  check('手动存档后标记被清掉', afterSave.unsaved === false, `unsaved=${afterSave.unsaved}`)
+  await call('DELETE', '/api/saves/6')
+
+  const autoEndless = (await call('POST', '/api/game/sessions',
+    { seedCode: '7K3M-9QPZ', endless: true })).data
+  const autoSlot = (await call('GET', '/api/saves')).data.find((s) => s.slot === 0)
+  check('无尽模式开局后自动槽位有存档', autoSlot.exists === true, `exists=${autoSlot.exists}`)
+  check('自动存档记的是当前无尽层',
+    autoSlot.levelIndex === autoEndless.levelIndex,
+    `slot=${autoSlot.levelIndex} cur=${autoEndless.levelIndex}`)
+
   console.log('')
   console.log(`结果：失败 ${failed} 项`)
+  restoreSaves()
   process.exit(failed > 0 ? 1 : 0)
 }
 
 main().catch((e) => {
   console.error('测试异常：', e)
+  restoreSaves()
   process.exit(1)
 })

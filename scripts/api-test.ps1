@@ -3,6 +3,20 @@ $ErrorActionPreference = 'Continue'
 $base = if ($args.Count -ge 1 -and $args[0]) { $args[0] } else { 'http://127.0.0.1:8080' }
 $script:failed = 0
 
+# 这个脚本会真的占用存档槽位（包括无尽模式的自动槽位），所以先把整个存档目录备份，
+# 跑完再原样还原 —— 测试不能把玩家自己的存档冲掉。
+$saveDir = Join-Path $env:USERPROFILE '.sokoban-saves'
+$saveBackup = Join-Path $env:TEMP 'sokoban-saves-backup'
+$hadSaveDir = Test-Path $saveDir
+if (Test-Path $saveBackup) { Remove-Item $saveBackup -Recurse -Force }
+if ($hadSaveDir) { Copy-Item $saveDir $saveBackup -Recurse -Force }
+
+function Restore-Saves {
+    if (Test-Path $saveDir) { Remove-Item $saveDir -Recurse -Force }
+    if ($hadSaveDir) { Copy-Item $saveBackup $saveDir -Recurse -Force }
+    if (Test-Path $saveBackup) { Remove-Item $saveBackup -Recurse -Force }
+}
+
 $tmp = Join-Path $env:TEMP 'sokoban-api-body.json'
 function Write-Body {
     param([string]$Json)
@@ -81,6 +95,43 @@ Check '同种子生成同一张地图' (($e1.level.walls -join ',') -eq ($e2.lev
 Check '同种子箱子起点一致' (($e1.boxes -join ',') -eq ($e2.boxes -join ',')) 'boxes differ'
 Check '非法种子返回 400' ((Get-Code 'POST' '/api/game/sessions' $BODY_BAD_SEED) -eq '400')
 
+Write-Output '== 未存档标记（退出时要不要提示就看它） =='
+$fresh = (Invoke-Api 'POST' '/api/game/sessions' '{}') | ConvertFrom-Json
+Check '刚开的局没有未存档改动' ($fresh.unsaved -eq $false) "unsaved=$($fresh.unsaved)"
+$freshMoved = (Invoke-Api 'POST' "/api/game/sessions/$($fresh.sessionId)/moves" $BODY_RIGHT) | ConvertFrom-Json
+Check '走一步后变成有未存档改动' ($freshMoved.unsaved -eq $true) "unsaved=$($freshMoved.unsaved)"
+$null = Invoke-Api 'POST' "/api/saves/4/from/$($fresh.sessionId)" $null
+$freshAfterSave = (Invoke-Api 'GET' "/api/game/sessions/$($fresh.sessionId)" $null) | ConvertFrom-Json
+Check '手动存档后标记被清掉' ($freshAfterSave.unsaved -eq $false) "unsaved=$($freshAfterSave.unsaved)"
+$null = Invoke-Api 'DELETE' '/api/saves/4' $null
+
+Write-Output '== 无尽模式：进新关卡自动存档到槽位 1（下标 0） =='
+$auto = (Invoke-Api 'POST' '/api/game/sessions' $BODY_SEED) | ConvertFrom-Json
+Check '自动存完之后标记是干净的' ($auto.unsaved -eq $false) "unsaved=$($auto.unsaved)"
+$autoSlot = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
+    Where-Object { $_.slot -eq 0 }
+Check '自动槽位写进了存档' ($autoSlot.exists -eq $true) "exists=$($autoSlot.exists)"
+Check '自动存档记的是当前无尽层' ($autoSlot.levelIndex -eq $auto.levelIndex) `
+    "slot=$($autoSlot.levelIndex) cur=$($auto.levelIndex)"
+Check '自动存档的种子与当前局一致' ("$($autoSlot.seedCode)" -eq "$($auto.seedCode)") `
+    "slot=$($autoSlot.seedCode) cur=$($auto.seedCode)"
+$null = Invoke-Api 'POST' "/api/game/sessions/$($auto.sessionId)/endless-skip" '{"unlocked":true}'
+$autoNext = (Invoke-Api 'POST' "/api/game/sessions/$($auto.sessionId)/level" $BODY_NEXT) | ConvertFrom-Json
+Check '进入下一层后仍是干净状态' ($autoNext.unsaved -eq $false) "unsaved=$($autoNext.unsaved)"
+$autoSlot2 = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
+    Where-Object { $_.slot -eq 0 }
+Check '自动存档跟着更新到新层' ($autoSlot2.levelIndex -eq $autoNext.levelIndex) `
+    "slot=$($autoSlot2.levelIndex) cur=$($autoNext.levelIndex)"
+Check '自动存档记的是新层的开局步数' ($autoSlot2.steps -eq 0) "steps=$($autoSlot2.steps)"
+# 随机迷宫的合法第一步不固定，直接问提示要一步
+$autoDir = ((Invoke-Api 'POST' "/api/game/sessions/$($auto.sessionId)/hint" $null) |
+    ConvertFrom-Json).plan[0]
+$autoMoved = (Invoke-Api 'POST' "/api/game/sessions/$($auto.sessionId)/moves" `
+    "{""dir"":""$autoDir""}") | ConvertFrom-Json
+Check '在新层走动之后又变成有未存档改动' ($autoMoved.unsaved -eq $true) `
+    "dir=$autoDir unsaved=$($autoMoved.unsaved)"
+Check '走动确实生效' ($autoMoved.steps -eq 1) "steps=$($autoMoved.steps)"
+
 Write-Output '== 关卡列表 =='
 $lv = (Invoke-Api 'GET' '/api/levels' $null) | ConvertFrom-Json
 Check '内置关卡返回 10 条' ($lv.Count -eq 10) "count=$($lv.Count)"
@@ -136,6 +187,8 @@ Check '槽位写成非数字返回 400' ((Get-Code 'POST' '/api/saves/abc/load' 
 Check '用错方法返回 405' ((Get-Code 'POST' '/api/levels' $null) -eq '405')
 $errBody = (Invoke-Api 'POST' '/api/saves/abc/load' $null) | ConvertFrom-Json
 Check '错误体里有 error 与 message' ($errBody.error -eq 400 -and $errBody.message) "body=$errBody"
+
+Restore-Saves
 
 Write-Output ''
 Write-Output "结果：失败 $script:failed 项"

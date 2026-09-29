@@ -27,6 +27,7 @@ import java.util.List;
  * @param maxUnlocked   已解锁的最高关卡下标
  * @param canAdvance    当前是否允许进入下一关
  * @param endlessSkip   作弊开关是否打开（无尽模式可跳关）
+ * @param unsaved       当前局面是否有改动还没存进任何槽位（前端据此决定退出时要不要提示）
  * @param seedCode      无尽关卡的种子展示码
  */
 public record GameStateDto(
@@ -50,5 +51,6 @@ public record GameStateDto(
         int maxUnlocked,
         boolean canAdvance,
         boolean endlessSkip,
+        boolean unsaved,
         String seedCode) {
 }
