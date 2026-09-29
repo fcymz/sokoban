@@ -13,7 +13,7 @@
 
     <groupId>com.ruoyi</groupId>
     <artifactId>sokoban</artifactId>
-    <version>1.0-SNAPSHOT</version>
+    <version>1.0.0</version>
     <name>sokoban</name>
     <description>推箱子（Sokoban）：游戏内核 + Spring Boot REST 后端</description>
 
