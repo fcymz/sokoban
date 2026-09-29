@@ -61,6 +61,29 @@ public class LevelController {
     }
 
     /**
+     * 把某个会话的当前局面写进自动存档槽位（关标签页时的兜底存档走这里）。
+     *
+     * @param sessionId 会话编号
+     * @return 写完之后（并清掉未存档标记）的槽位列表
+     */
+    @PostMapping("/saves/auto/from/{sessionId}")
+    public List<SaveSlotDto> autoSave(@PathVariable String sessionId) {
+        return service.autoSave(sessionId);
+    }
+
+    /**
+     * 把一个槽位的存档转存到另一个槽位（自动存档槽靠它搬出去）。
+     *
+     * @param from 来源槽位
+     * @param to   目标槽位
+     * @return 转存之后的槽位列表
+     */
+    @PostMapping("/saves/{from}/copy/{to}")
+    public List<SaveSlotDto> copy(@PathVariable int from, @PathVariable int to) {
+        return service.copySave(from, to);
+    }
+
+    /**
      * 读档：用某个槽新建一个会话。
      *
      * @param slot 槽位编号

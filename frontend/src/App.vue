@@ -227,6 +227,21 @@ async function onDeleteSlot(slot: number) {
   }
 }
 
+/** 把某个槽位的存档转存到另一个槽位（目前只有自动存档槽会用到）。 */
+async function onCopySlot(from: number, to: number) {
+  const target = slots.value.find((s) => s.slot === to)
+  if (target?.exists
+    && !window.confirm(`第 ${to + 1} 个槽位已有存档，覆盖它吗？`)) {
+    return
+  }
+  try {
+    slots.value = await api.copySlot(from, to)
+    notice.value = `已把第 ${from + 1} 个存档转存到第 ${to + 1} 个存档`
+  } catch (e) {
+    notice.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
 /** 返回主菜单（有未存档的进度时先确认）。 */
 async function backToMenu() {
   if (hasUnsavedProgress()) {
@@ -258,13 +273,14 @@ function closeTab() {
  *
  * 用 sendBeacon 是因为它能在页面已经要关掉的时候照样把请求发出去；
  * 玩家在浏览器的原生确认框上点了「离开」之后，进度也不会白推。
+ * 走的是专门的 `/api/saves/auto/...`，因为 1 号槽位不接受普通的手动存档。
  */
 function flushUnsaved() {
   const id = game.state.value?.sessionId
   if (!id || !hasUnsavedProgress() || typeof navigator.sendBeacon !== 'function') {
     return
   }
-  navigator.sendBeacon(`/api/saves/0/from/${id}`)
+  navigator.sendBeacon(api.autoSaveUrl(id))
 }
 
 /** 清干净本地状态后关标签页。 */
@@ -432,7 +448,8 @@ function toggleSeed() {
         </button>
       </div>
       <p class="hint">
-        共 8 个槽位，槽位 1 是自动存档槽：无尽模式每次进入新关卡都会自动存进去。
+        共 8 个槽位，槽位 1 是自动存档槽：无尽模式每次进入新关卡、以及关标签页时都会自动写进去，
+        因此它不接受手动存档，但可以用「转存到…」把当前这份搬到别的槽位长期保留。
         保存的是「当前局面」的玩家与箱子位置，读档可以接着玩，而不是回到关卡开头。
       </p>
       <SaveSlots
@@ -441,6 +458,7 @@ function toggleSeed() {
         @load="onLoadSlot"
         @save="onSaveSlot"
         @delete="onDeleteSlot"
+        @copy="onCopySlot"
       />
       <p v-if="notice" class="notice">{{ notice }}</p>
     </section>

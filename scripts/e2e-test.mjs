@@ -133,6 +133,21 @@ const main = async () => {
     autoSlot.levelIndex === autoEndless.levelIndex,
     `slot=${autoSlot.levelIndex} cur=${autoEndless.levelIndex}`)
 
+  console.log('== 自动存档槽不能手动存入，但可以转存出去 ==')
+  const denied = await call('POST', `/api/saves/0/from/${fresh.sessionId}`)
+  check('手动存入自动槽位被拒（400）', denied.status === 400, `status=${denied.status}`)
+  const copied = await call('POST', '/api/saves/0/copy/7')
+  check('可以把自动存档转存到别的槽位', copied.status === 200, `status=${copied.status}`)
+  const copyAt7 = (copied.data ?? []).find((s) => s.slot === 7)
+  check('转存到槽位 8 的内容与自动存档一致',
+    Boolean(copyAt7) && copyAt7.exists === true
+    && copyAt7.levelIndex === autoSlot.levelIndex
+    && copyAt7.steps === autoSlot.steps,
+    `slot8=${copyAt7?.levelIndex}/${copyAt7?.steps} 自动=${autoSlot.levelIndex}/${autoSlot.steps}`)
+  const toAuto = await call('POST', '/api/saves/7/copy/0')
+  check('不能转存回自动槽位（400）', toAuto.status === 400, `status=${toAuto.status}`)
+  await call('DELETE', '/api/saves/7')
+
   console.log('== 退出游戏 / 关标签页的逻辑确实下发到了浏览器 ==')
   const appSrc = await (await fetch(`${BASE}/src/App.vue`)).text()
   check('退出游戏按钮调用 window.close()', appSrc.includes('window.close()'),
