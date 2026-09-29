@@ -133,6 +133,16 @@ const main = async () => {
     autoSlot.levelIndex === autoEndless.levelIndex,
     `slot=${autoSlot.levelIndex} cur=${autoEndless.levelIndex}`)
 
+  console.log('== 退出游戏 / 关标签页的逻辑确实下发到了浏览器 ==')
+  const appSrc = await (await fetch(`${BASE}/src/App.vue`)).text()
+  check('退出游戏按钮调用 window.close()', appSrc.includes('window.close()'),
+    '没有 window.close()')
+  // 注意：Vite 会把单引号转成双引号，这里只按标识符判断
+  check('关标签页前按未存档标记拦截', appSrc.includes('beforeunload'),
+    '没有注册 beforeunload')
+  check('离开页面时用 sendBeacon 兜底存档',
+    appSrc.includes('sendBeacon'), '没有 sendBeacon')
+
   console.log('')
   console.log(`结果：失败 ${failed} 项`)
   restoreSaves()
