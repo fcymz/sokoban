@@ -213,6 +213,28 @@ npm run build                        # -> frontend/dist/
 前后端就各自独立部署了（`WebConfig` 里的 CORS 允许 `localhost` 任意端口，
 生产同源部署时也用不到它）。
 
+### 打发布包
+
+```powershell
+.\scripts\build-release.ps1
+```
+
+它会依次：打后端 jar → 构建前端 → **把 `frontend/dist` 塞进 jar 的
+`BOOT-INF/classes/static/`** → 冒烟测试这个 jar 能不能同时提供前后端 → 组装发布产物。
+
+关键就在"塞进 jar"这一步：Spring Boot 会把 `static/` 挂在根路径上，于是**一个进程、一个端口**
+就把前后端都提供了，发布包不需要 Node，也不需要反向代理。这只是发布产物的打包方式，
+**日常开发仍然是前后端分开跑**（`start-dev.ps1`，Vite 代理 `/api`）。
+
+产物在 `target/release/`：
+
+| 文件 | 内容 |
+|---|---|
+| `sokoban.jar` | 自包含可执行 jar（后端 + 内嵌前端） |
+| `sokoban-<版本>.zip` | 完整运行包：jar + 一键运行脚本 + README，解压双击即可 |
+| `sokoban-frontend-<版本>.zip` | 只含前端静态文件，给 Nginx 等分离部署用 |
+| `run-sokoban.ps1` / `run-sokoban.cmd` / `stop-sokoban.cmd` | 一键运行脚本，单独也能下载 |
+
 ## 配置
 
 | 配置项 | 位置 | 默认值 |
@@ -398,6 +420,9 @@ frontend/                      Vue 3 + Vite + TypeScript 前端（详见 fronten
 mvn17.ps1 / start-dev.ps1 / stop-dev.ps1（+ .cmd 双击版）   便捷脚本，见上
 scripts/
   jdk.ps1                       本项目用的 JDK 路径（换机器改这里）
+  build-release.ps1             打发布包（前端内嵌进 jar，见「打发布包」）
+  run-sokoban.ps1               发布包里的一键运行脚本（带 BOM，能给任何机器用）
+  run-sokoban.cmd / stop-sokoban.cmd   上面那个脚本的双击入口（纯 ASCII）
   api-test.ps1                  后端接口实测（真打 HTTP，72 项断言）
   e2e-test.mjs                  走前端代理的端到端联调（32 项断言）
   brace_check.py                改完 Java 后校验花括号是否配平（可选开发工具）
@@ -435,11 +460,17 @@ node scripts\e2e-test.mjs
 | 脚本 | 用途 |
 |---|---|
 | `.\mvn17.ps1 …` | 用 JDK 17 跑任意 maven 命令 |
-| `.\start-dev.ps1` / `.\stop-dev.ps1` | 一键启停前后端 |
+| `.\start-dev.ps1` / `.\stop-dev.ps1` | 一键启停前后端（开发用，Vite 起 5173） |
+| `.\scripts\build-release.ps1` | 打发布包（前端内嵌进 jar，产出 `target\release\`） |
 | `scripts\brace_check.py` | 批量改 Java 后确认花括号配平 |
 | `scripts\audit_public_api.py` | 列出内核 public 方法分别在 web / 包内 / 测试 / 无引用的情况，用来找死代码 |
 
 `mvn17.ps1` 会把参数原样透传给 maven，所以 `-D`、`-B`、`-q` 之类都能直接用。
+
+> 给发布包写的 `scripts\run-sokoban.ps1` 是 **UTF-8 带 BOM** 的，配套的 `.cmd` 则是**纯 ASCII**。
+> 因为 Windows PowerShell 5.1 读无 BOM 的 UTF-8 会按系统 ANSI 代码页解释（这台机器恰好是 UTF-8
+> 所以看不出问题），而 `cmd.exe` 读 `.cmd` 用的是 OEM 代码页 —— 发给别人的脚本必须这么处理，
+> 否则在 GBK 机器上中文全是乱码。仓库里其它脚本沿用无 BOM，只在这台机器上跑。
 
 ## 常见问题
 
