@@ -37,10 +37,14 @@ onMounted(async () => {
     notice.value = e instanceof Error ? e.message : String(e)
   }
   window.addEventListener('keydown', onKeyDown)
+  window.addEventListener('beforeunload', onBeforeUnload)
+  window.addEventListener('pagehide', onPageHide)
 })
 
 onUnmounted(() => {
   window.removeEventListener('keydown', onKeyDown)
+  window.removeEventListener('beforeunload', onBeforeUnload)
+  window.removeEventListener('pagehide', onPageHide)
 })
 
 /** 键盘操作：方向键/WASD 移动，U 撤销，R 重来，H 提示，Esc 返回。 */
@@ -237,17 +241,66 @@ async function backToMenu() {
   screen.value = 'menu'
 }
 
-function quit() {
-  if (hasUnsavedProgress()) {
-    if (!window.confirm('还没有存档，确定退出吗？')) {
-      return
+/** 关闭标签页；浏览器可能不允许网页关闭自己，被拦下时给玩家一句能照做的说明。 */
+function closeTab() {
+  window.close()
+  window.setTimeout(() => {
+    if (!window.closed) {
+      notice.value = '浏览器没允许网页自己关掉这个标签页 —— '
+        + '请点标签页上的 ×，或按 Ctrl+W 关闭'
+      screen.value = 'menu'
     }
+  }, 250)
+}
+
+/**
+ * 把当前「还没存过档」的局面送进自动槽位。
+ *
+ * 用 sendBeacon 是因为它能在页面已经要关掉的时候照样把请求发出去；
+ * 玩家在浏览器的原生确认框上点了「离开」之后，进度也不会白推。
+ */
+function flushUnsaved() {
+  const id = game.state.value?.sessionId
+  if (!id || !hasUnsavedProgress() || typeof navigator.sendBeacon !== 'function') {
+    return
   }
+  navigator.sendBeacon(`/api/saves/0/from/${id}`)
+}
+
+/** 清干净本地状态后关标签页。 */
+function leaveForGood() {
   game.clear()
   cheatBuffer.length = 0
   seedVisible.value = false
   screen.value = 'menu'
-  notice.value = '已退出游戏（网页里可以直接关闭标签页）'
+  closeTab()
+}
+
+/** 主菜单的「退出游戏」：关掉标签页。 */
+function quit() {
+  notice.value = ''
+  // 主菜单上通常已经没有进行中的局面；万一还有没存过的进度，先兜底存进自动槽位
+  flushUnsaved()
+  leaveForGood()
+}
+
+/**
+ * 直接关标签页 / 刷新时：只有存在没存过的改动才拦一下。
+ *
+ * 浏览器只允许页面弹它自己的那个「离开此网站？」确认框，页面没法在这里放自定义按钮，
+ * 所以「存档」这一半交给 {@link flushUnsaved} 在 pagehide 时兜底。
+ */
+function onBeforeUnload(event: BeforeUnloadEvent) {
+  if (!hasUnsavedProgress()) {
+    return
+  }
+  event.preventDefault()
+  event.returnValue = ''
+}
+
+/** 页面真的要走了（关标签页、刷新、进 bfcache）：兜底存一次。 */
+function onPageHide() {
+  flushUnsaved()
 }
 
 /** 是否在游戏内展开显示种子（默认不显示，玩家主动点按钮才看）。 */

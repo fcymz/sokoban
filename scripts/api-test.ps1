@@ -132,6 +132,21 @@ Check '在新层走动之后又变成有未存档改动' ($autoMoved.unsaved -eq
     "dir=$autoDir unsaved=$($autoMoved.unsaved)"
 Check '走动确实生效' ($autoMoved.steps -eq 1) "steps=$($autoMoved.steps)"
 
+Write-Output '== 关标签页的兜底存档（navigator.sendBeacon 形状的请求） =='
+$beacon = (Invoke-Api 'POST' '/api/game/sessions' '{}') | ConvertFrom-Json
+$null = Invoke-Api 'POST' "/api/game/sessions/$($beacon.sessionId)/moves" $BODY_RIGHT
+# sendBeacon 发的是空 body + text/plain，这里原样模拟，确认后端照样收得下
+$beaconCode = & curl.exe -s -o NUL -w '%{http_code}' -X POST `
+    "$base/api/saves/0/from/$($beacon.sessionId)" -H 'Content-Type: text/plain;charset=UTF-8'
+Check 'sendBeacon 形状的请求返回 200' ("$beaconCode".Trim() -eq '200') "code=$beaconCode"
+$beaconAfter = (Invoke-Api 'GET' "/api/game/sessions/$($beacon.sessionId)" $null) | ConvertFrom-Json
+Check '兜底存档后标记被清掉' ($beaconAfter.unsaved -eq $false) "unsaved=$($beaconAfter.unsaved)"
+$beaconSlot = ((Invoke-Api 'GET' '/api/saves' $null) | ConvertFrom-Json) |
+    Where-Object { $_.slot -eq 0 }
+Check '兜底存档写进了自动槽位' ($beaconSlot.steps -eq 1) "steps=$($beaconSlot.steps)"
+Check '兜底存档记的是当前关卡' ($beaconSlot.levelIndex -eq $beaconAfter.levelIndex) `
+    "slot=$($beaconSlot.levelIndex) cur=$($beaconAfter.levelIndex)"
+
 Write-Output '== 关卡列表 =='
 $lv = (Invoke-Api 'GET' '/api/levels' $null) | ConvertFrom-Json
 Check '内置关卡返回 10 条' ($lv.Count -eq 10) "count=$($lv.Count)"
