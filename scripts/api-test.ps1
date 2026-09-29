@@ -130,6 +130,13 @@ Write-Output '== 已下线的成绩榜接口 =='
 Check 'GET /api/scores 返回 404' ((Get-Code 'GET' '/api/scores' $null) -eq '404')
 Check '随便一个不存在的路径也是 404' ((Get-Code 'GET' '/api/nope' $null) -eq '404')
 
+Write-Output '== 错误响应都是带说明的 JSON，不是 500 =='
+Check '请求体不是合法 JSON 返回 400' ((Get-Code 'POST' "/api/game/sessions/$sid/moves" '{"dir":UP}') -eq '400')
+Check '槽位写成非数字返回 400' ((Get-Code 'POST' '/api/saves/abc/load' $null) -eq '400')
+Check '用错方法返回 405' ((Get-Code 'POST' '/api/levels' $null) -eq '405')
+$errBody = (Invoke-Api 'POST' '/api/saves/abc/load' $null) | ConvertFrom-Json
+Check '错误体里有 error 与 message' ($errBody.error -eq 400 -and $errBody.message) "body=$errBody"
+
 Write-Output ''
 Write-Output "结果：失败 $script:failed 项"
 exit $script:failed
